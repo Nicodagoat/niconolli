@@ -72,9 +72,9 @@ export default function ReportStep({ onBack }: Props) {
                 <h4 className="text-sm font-semibold text-gray-900">{report.title}</h4>
                 <p className="text-xs text-gray-500 mt-1">{report.desc}</p>
 
-                {'sheets' in report && (
+                {'sheets' in report && report.sheets && (
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {report.sheets.map((s) => (
+                    {report.sheets.map((s: string) => (
                       <span key={s} className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">{s}</span>
                     ))}
                   </div>
