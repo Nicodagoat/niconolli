@@ -5,6 +5,7 @@ import ActivitiesPage from './pages/ActivitiesPage';
 import EmissionFactorsPage from './pages/EmissionFactorsPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
+import DEASPPage from './pages/deasp/DEASPPage';
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/activities" element={<ActivitiesPage />} />
         <Route path="/emission-factors" element={<EmissionFactorsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/deasp" element={<DEASPPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
     </Routes>

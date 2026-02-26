@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useStore } from '../../store';
 import {
   LayoutDashboard, ClipboardList, Database, FileBarChart,
-  Settings, Leaf, ChevronLeft, ChevronRight,
+  Settings, Leaf, ChevronLeft, ChevronRight, Anchor,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -11,6 +11,7 @@ const navItems = [
   { to: '/activities', icon: ClipboardList, label: 'Activities' },
   { to: '/emission-factors', icon: Database, label: 'Emission Factors' },
   { to: '/reports', icon: FileBarChart, label: 'Reports' },
+  { to: '/deasp', icon: Anchor, label: 'DEASP Italia', separator: true },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
@@ -35,6 +36,10 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 py-4">
         {navItems.map((item) => (
+          <div key={item.to}>
+            {'separator' in item && item.separator && (
+              <div className="my-2 mx-4 border-t border-gray-700" />
+            )}
           <NavLink
             key={item.to}
             to={item.to}
@@ -50,6 +55,7 @@ export default function Sidebar() {
             <item.icon className="w-5 h-5 flex-shrink-0" />
             {sidebarOpen && <span className="ml-3">{item.label}</span>}
           </NavLink>
+          </div>
         ))}
       </nav>
 
