@@ -5,6 +5,8 @@ from app.models.activity import Activity
 from app.models.emission_factor import EmissionFactor, EmissionFactorVersion
 from app.models.calculation import CalculationResult
 from app.models.audit import AuditLog
+from app.models.client import Client
+from app.models.deasp_project import DEASPProject
 
 __all__ = [
     "Organization",
@@ -16,4 +18,6 @@ __all__ = [
     "EmissionFactorVersion",
     "CalculationResult",
     "AuditLog",
+    "Client",
+    "DEASPProject",
 ]

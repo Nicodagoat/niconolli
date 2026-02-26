@@ -7,7 +7,7 @@ export default function Layout() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-brand-dark">
       <Sidebar />
       <div className={`flex flex-col flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-16'}`}>
         <Header />

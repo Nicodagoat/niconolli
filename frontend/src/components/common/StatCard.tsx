@@ -6,28 +6,29 @@ interface StatCardProps {
   value: string;
   subtitle?: string;
   icon: ReactNode;
-  color?: 'green' | 'red' | 'amber' | 'blue' | 'purple';
+  color?: 'green' | 'red' | 'amber' | 'blue' | 'purple' | 'yellow';
   trend?: { value: number; label: string };
 }
 
 const colorMap = {
-  green: 'bg-green-50 text-green-600',
-  red: 'bg-red-50 text-red-600',
-  amber: 'bg-amber-50 text-amber-600',
-  blue: 'bg-blue-50 text-blue-600',
-  purple: 'bg-purple-50 text-purple-600',
+  green: 'bg-brand-green/10 text-brand-green',
+  red: 'bg-red-500/10 text-red-400',
+  amber: 'bg-amber-500/10 text-amber-400',
+  blue: 'bg-brand-blue/10 text-[#6060FF]',
+  purple: 'bg-purple-500/10 text-purple-400',
+  yellow: 'bg-brand-yellow/10 text-brand-yellow',
 };
 
 export default function StatCard({ title, value, subtitle, icon, color = 'green', trend }: StatCardProps) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow">
+    <div className="bg-surface-card rounded-xl border border-surface-border p-6 hover:border-surface-hover transition-colors">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-500">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-gray-900">{value}</p>
+          <p className="text-sm font-medium text-gray-400">{title}</p>
+          <p className="mt-2 text-3xl font-bold text-white">{value}</p>
           {subtitle && <p className="mt-1 text-sm text-gray-500">{subtitle}</p>}
           {trend && (
-            <p className={clsx('mt-2 text-sm font-medium', trend.value >= 0 ? 'text-red-600' : 'text-green-600')}>
+            <p className={clsx('mt-2 text-sm font-medium', trend.value >= 0 ? 'text-red-400' : 'text-brand-green')}>
               {trend.value >= 0 ? '+' : ''}{trend.value.toFixed(1)}% {trend.label}
             </p>
           )}

@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.routes import auth, organizations, inventories, activities, emission_factors, calculations, reports
+from app.api.routes.clients import router as clients_router
 from app.api.routes.deasp.deasp_routes import router as deasp_router
 
 app = FastAPI(
@@ -30,6 +31,7 @@ app.include_router(activities.router, prefix=settings.API_PREFIX)
 app.include_router(emission_factors.router, prefix=settings.API_PREFIX)
 app.include_router(calculations.router, prefix=settings.API_PREFIX)
 app.include_router(reports.router, prefix=settings.API_PREFIX)
+app.include_router(clients_router, prefix=settings.API_PREFIX)
 app.include_router(deasp_router, prefix=settings.API_PREFIX)
 
 

@@ -2,7 +2,8 @@ import axios from 'axios';
 import type {
   Organization, Facility, Inventory, Activity, ActivityCreate,
   EmissionFactor, CalculationResult, InventorySummary, EmissionsTrend,
-  ScopeBreakdown,
+  ScopeBreakdown, Client, ClientCreate, DEASPProject, DEASPProjectCreate,
+  DashboardSummary,
 } from '../types';
 
 const api = axios.create({
@@ -105,6 +106,30 @@ export const reportAPI = {
     api.get(`/reports/${inventoryId}/export/calculations-csv`, { responseType: 'blob' }),
   exportActivitiesCSV: (inventoryId: string) =>
     api.get(`/reports/${inventoryId}/export/activities-csv`, { responseType: 'blob' }),
+};
+
+// Clients
+export const clientAPI = {
+  list: (status?: string) => api.get<Client[]>('/clients/', { params: status ? { status } : undefined }),
+  get: (id: string) => api.get<Client>(`/clients/${id}`),
+  create: (data: ClientCreate) => api.post<Client>('/clients/', data),
+  update: (id: string, data: Partial<Client>) => api.put<Client>(`/clients/${id}`, data),
+  getEmissions: (id: string) => api.get(`/clients/${id}/emissions`),
+};
+
+// DEASP Projects
+export const deaspProjectAPI = {
+  list: (clientId?: string, status?: string) =>
+    api.get<DEASPProject[]>('/deasp-projects/', { params: { client_id: clientId, status } }),
+  get: (id: string) => api.get<DEASPProject>(`/deasp-projects/${id}`),
+  create: (data: DEASPProjectCreate) => api.post<DEASPProject>('/deasp-projects/', data),
+  update: (id: string, data: Partial<DEASPProject>) => api.put<DEASPProject>(`/deasp-projects/${id}`, data),
+  getProgress: (id: string) => api.get(`/deasp-projects/${id}/progress`),
+};
+
+// Dashboard
+export const dashboardAPI = {
+  getSummary: () => api.get<DashboardSummary>('/dashboard/summary'),
 };
 
 export default api;

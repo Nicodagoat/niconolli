@@ -172,3 +172,85 @@ export interface ScopeBreakdown {
   percentage: number;
   activity_count: number;
 }
+
+// Client
+export type ClientStatus = 'active' | 'inactive';
+
+export interface Client {
+  id: string;
+  name: string;
+  industry?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  address?: string;
+  country: string;
+  status: ClientStatus;
+  total_scope1_tonnes: number;
+  total_scope2_tonnes: number;
+  total_scope3_tonnes: number;
+  total_co2e_tonnes: number;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientCreate {
+  name: string;
+  industry?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  address?: string;
+  country?: string;
+  notes?: string;
+}
+
+// DEASP Project
+export type ProjectStatus = 'planning' | 'in_progress' | 'on_hold' | 'completed' | 'cancelled';
+
+export interface DEASPProject {
+  id: string;
+  client_id: string;
+  name: string;
+  description?: string;
+  target_reduction_tonnes?: number;
+  target_reduction_pct?: number;
+  baseline_emissions_tonnes: number;
+  current_emissions_tonnes: number;
+  start_date?: string;
+  end_date?: string;
+  status: ProjectStatus;
+  team_members?: Array<{ name: string; role: string }>;
+  activity_log?: Array<{ date: string; action: string; user: string }>;
+  ports_involved?: string[];
+  reporting_year?: number;
+  progress_pct: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DEASPProjectCreate {
+  client_id: string;
+  name: string;
+  description?: string;
+  target_reduction_tonnes?: number;
+  target_reduction_pct?: number;
+  baseline_emissions_tonnes?: number;
+  current_emissions_tonnes?: number;
+  start_date?: string;
+  end_date?: string;
+  team_members?: Array<{ name: string; role: string }>;
+  ports_involved?: string[];
+  reporting_year?: number;
+}
+
+export interface DashboardSummary {
+  total_clients: number;
+  active_clients: number;
+  total_emissions_tonnes: number;
+  total_projects: number;
+  active_projects: number;
+  clients: Client[];
+  projects: DEASPProject[];
+}
