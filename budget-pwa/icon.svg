@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#22223B"/>
+
+  <!-- Two overlapping circles representing the couple -->
+  <circle cx="196" cy="256" r="88" fill="none" stroke="#C9ADA7" stroke-width="14" opacity="0.7"/>
+  <circle cx="316" cy="256" r="88" fill="none" stroke="#4A4E69" stroke-width="14" opacity="0.8"/>
+
+  <!-- Intersection accent -->
+  <path d="M256,182 a88,88,0,0,1,0,148 a88,88,0,0,1,0,-148 Z" fill="rgba(201,173,167,0.12)"/>
+
+  <!-- Euro symbol centered -->
+  <text
+    x="256"
+    y="280"
+    font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif"
+    font-size="120"
+    font-weight="700"
+    fill="#F2E9E4"
+    text-anchor="middle"
+    dominant-baseline="middle"
+  >€</text>
+
+  <!-- Small heart at top -->
+  <path d="M256,148 c0,0 -12,-18 -28,-14 c-10,2.5 -16,14 -16,22 c0,20 44,46 44,46 c0,0 44,-26 44,-46 c0,-8 -6,-19.5 -16,-22 c-16,-4 -28,14 -28,14 Z" fill="#9A8C98" opacity="0.5"/>
+</svg>

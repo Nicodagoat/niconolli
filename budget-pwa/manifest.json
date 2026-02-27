@@ -1,0 +1,53 @@
+{
+  "name": "CoupleBook — Budget Tracker",
+  "short_name": "CoupleBook",
+  "description": "Zero-friction couple budget tracking. Log expenses in 3 seconds.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F2E9E4",
+  "theme_color": "#22223B",
+  "lang": "en",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Add Food Expense",
+      "short_name": "Food",
+      "description": "Quickly log a food or restaurant expense",
+      "url": "./index.html?quick=food",
+      "icons": [{ "src": "icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Add Transport Expense",
+      "short_name": "Transport",
+      "description": "Quickly log a transport expense",
+      "url": "./index.html?quick=transport",
+      "icons": [{ "src": "icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Add Shopping Expense",
+      "short_name": "Shopping",
+      "description": "Quickly log a shopping expense",
+      "url": "./index.html?quick=shopping",
+      "icons": [{ "src": "icon.svg", "sizes": "any" }]
+    }
+  ],
+  "screenshots": [],
+  "related_applications": [],
+  "prefer_related_applications": false
+}
