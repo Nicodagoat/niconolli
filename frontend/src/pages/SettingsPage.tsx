@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Building2, MapPin, Sliders, Shield, UserPlus, Copy, Check, RefreshCw } from 'lucide-react';
+import { Building2, MapPin, Sliders, Shield, UserPlus, Copy, Check, RefreshCw, Plus, CheckCircle } from 'lucide-react';
 import { useStore } from '../store';
 import { userAPI } from '../services/api';
 
@@ -39,6 +39,59 @@ export default function SettingsPage() {
   ];
 
   const isAdmin = user?.role === 'admin';
+  const [orgSaved, setOrgSaved] = useState(false);
+  const [methSaved, setMethSaved] = useState(false);
+  const [orgSettings, setOrgSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('org_settings');
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore */ }
+    return {
+      name: currentOrg?.name || 'My Organization',
+      country: currentOrg?.country || 'ITA',
+      employees: currentOrg?.employee_count || 500,
+      revenue: currentOrg?.annual_revenue || 2000000,
+      industry: 'technology',
+      currency: 'EUR',
+    };
+  });
+  const [methSettings, setMethSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('meth_settings');
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore */ }
+    return { boundary: 'operational_control', gwp: 'ar6', threshold: 5 };
+  });
+  const [facilities, setFacilities] = useState<Array<{ id: string; name: string; address: string; type: string }>>(() => {
+    try {
+      const saved = localStorage.getItem('facilities');
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore */ }
+    return [];
+  });
+  const [showFacilityModal, setShowFacilityModal] = useState(false);
+  const [newFacility, setNewFacility] = useState({ name: '', address: '', type: 'office' });
+
+  const handleSaveOrg = () => {
+    localStorage.setItem('org_settings', JSON.stringify(orgSettings));
+    setOrgSaved(true);
+    setTimeout(() => setOrgSaved(false), 2000);
+  };
+
+  const handleSaveMeth = () => {
+    localStorage.setItem('meth_settings', JSON.stringify(methSettings));
+    setMethSaved(true);
+    setTimeout(() => setMethSaved(false), 2000);
+  };
+
+  const handleAddFacility = () => {
+    if (!newFacility.name.trim()) return;
+    const updated = [...facilities, { id: `fac_${Date.now()}`, ...newFacility }];
+    setFacilities(updated);
+    localStorage.setItem('facilities', JSON.stringify(updated));
+    setShowFacilityModal(false);
+    setNewFacility({ name: '', address: '', type: 'office' });
+  };
 
   useEffect(() => {
     if (activeTab === 'users') loadUsers();
@@ -118,21 +171,30 @@ export default function SettingsPage() {
         <div className="bg-surface-card rounded-xl border border-surface-border p-6">
           <h3 className="text-lg font-semibold text-white mb-6">Organization Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {[
-              { label: 'Organization Name', type: 'text', value: currentOrg?.name || 'My Organization' },
-              { label: 'Country', type: 'text', value: currentOrg?.country || 'ITA' },
-              { label: 'Number of Employees', type: 'number', value: currentOrg?.employee_count || 500 },
-              { label: 'Annual Revenue', type: 'number', value: currentOrg?.annual_revenue || 2000000 },
-            ].map((f) => (
-              <div key={f.label}>
-                <label className="block text-sm font-medium text-gray-300 mb-1">{f.label}</label>
-                <input type={f.type} defaultValue={f.value}
-                  className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
-              </div>
-            ))}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Organization Name</label>
+              <input type="text" value={orgSettings.name} onChange={(e) => setOrgSettings({ ...orgSettings, name: e.target.value })}
+                className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Country</label>
+              <input type="text" value={orgSettings.country} onChange={(e) => setOrgSettings({ ...orgSettings, country: e.target.value })}
+                className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Number of Employees</label>
+              <input type="number" value={orgSettings.employees} onChange={(e) => setOrgSettings({ ...orgSettings, employees: parseInt(e.target.value) || 0 })}
+                className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Annual Revenue</label>
+              <input type="number" value={orgSettings.revenue} onChange={(e) => setOrgSettings({ ...orgSettings, revenue: parseInt(e.target.value) || 0 })}
+                className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Industry</label>
-              <select className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" defaultValue="technology">
+              <select value={orgSettings.industry} onChange={(e) => setOrgSettings({ ...orgSettings, industry: e.target.value })}
+                className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue">
                 <option value="manufacturing">Manufacturing</option>
                 <option value="technology">Technology</option>
                 <option value="transportation">Transportation</option>
@@ -141,7 +203,8 @@ export default function SettingsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Revenue Currency</label>
-              <select className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" defaultValue="EUR">
+              <select value={orgSettings.currency} onChange={(e) => setOrgSettings({ ...orgSettings, currency: e.target.value })}
+                className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue">
                 <option value="USD">USD</option>
                 <option value="EUR">EUR</option>
                 <option value="GBP">GBP</option>
@@ -149,7 +212,9 @@ export default function SettingsPage() {
             </div>
           </div>
           <div className="mt-6 flex justify-end">
-            <button className="px-6 py-2 primary-gradient text-white rounded-lg text-sm hover:opacity-90">Save Changes</button>
+            <button onClick={handleSaveOrg} className="flex items-center space-x-2 px-6 py-2 primary-gradient text-white rounded-lg text-sm hover:opacity-90">
+              {orgSaved ? <><CheckCircle className="w-4 h-4" /><span>Saved!</span></> : <span>Save Changes</span>}
+            </button>
           </div>
         </div>
       )}
@@ -160,7 +225,8 @@ export default function SettingsPage() {
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Organizational Boundary</label>
-              <select className="w-full max-w-md rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue">
+              <select value={methSettings.boundary} onChange={(e) => setMethSettings({ ...methSettings, boundary: e.target.value })}
+                className="w-full max-w-md rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue">
                 <option value="operational_control">Operational Control</option>
                 <option value="financial_control">Financial Control</option>
                 <option value="equity_share">Equity Share</option>
@@ -169,7 +235,8 @@ export default function SettingsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Global Warming Potential (GWP)</label>
-              <select className="w-full max-w-md rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue">
+              <select value={methSettings.gwp} onChange={(e) => setMethSettings({ ...methSettings, gwp: e.target.value })}
+                className="w-full max-w-md rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue">
                 <option value="ar6">IPCC AR6 (2021) - Recommended</option>
                 <option value="ar5">IPCC AR5 (2014)</option>
               </select>
@@ -178,26 +245,91 @@ export default function SettingsPage() {
               <label className="block text-sm font-medium text-gray-300 mb-1">Factor Update Notifications</label>
               <div className="flex items-center space-x-4">
                 <span className="text-sm text-gray-400">Alert when factors change by more than</span>
-                <input type="number" defaultValue={5}
+                <input type="number" value={methSettings.threshold}
+                  onChange={(e) => setMethSettings({ ...methSettings, threshold: parseInt(e.target.value) || 0 })}
                   className="w-20 rounded-lg bg-brand-dark border border-surface-border p-2 text-sm text-white focus:outline-none focus:border-brand-blue" />
                 <span className="text-sm text-gray-400">%</span>
               </div>
             </div>
           </div>
           <div className="mt-6 flex justify-end">
-            <button className="px-6 py-2 primary-gradient text-white rounded-lg text-sm hover:opacity-90">Save Preferences</button>
+            <button onClick={handleSaveMeth} className="flex items-center space-x-2 px-6 py-2 primary-gradient text-white rounded-lg text-sm hover:opacity-90">
+              {methSaved ? <><CheckCircle className="w-4 h-4" /><span>Saved!</span></> : <span>Save Preferences</span>}
+            </button>
           </div>
         </div>
       )}
 
       {activeTab === 'facilities' && (
         <div className="bg-surface-card rounded-xl border border-surface-border p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Facilities</h3>
-          <p className="text-sm text-gray-400 mb-6">Manage your organization's physical locations.</p>
-          <div className="border border-dashed border-surface-border rounded-xl p-8 text-center">
-            <MapPin className="w-12 h-12 mx-auto text-gray-500 mb-3" />
-            <p className="text-sm text-gray-400">Add facilities to track location-specific emissions.</p>
-            <button className="mt-3 px-4 py-2 primary-gradient text-white rounded-lg text-sm hover:opacity-90">Add Facility</button>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-white">Facilities</h3>
+              <p className="text-sm text-gray-400">Manage your organization's physical locations.</p>
+            </div>
+            <button onClick={() => setShowFacilityModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 primary-gradient text-white rounded-lg text-sm hover:opacity-90">
+              <Plus className="w-4 h-4" /><span>Add Facility</span>
+            </button>
+          </div>
+          {facilities.length > 0 ? (
+            <div className="space-y-3">
+              {facilities.map(f => (
+                <div key={f.id} className="flex items-center justify-between p-4 bg-surface-hover rounded-lg">
+                  <div className="flex items-center space-x-3">
+                    <MapPin className="w-5 h-5 text-brand-blue" />
+                    <div>
+                      <p className="text-sm font-medium text-white">{f.name}</p>
+                      <p className="text-xs text-gray-400">{f.address} - {f.type}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="border border-dashed border-surface-border rounded-xl p-8 text-center">
+              <MapPin className="w-12 h-12 mx-auto text-gray-500 mb-3" />
+              <p className="text-sm text-gray-400">No facilities added yet. Add your first facility.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Add Facility Modal */}
+      {showFacilityModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface-card rounded-2xl border border-surface-border w-full max-w-md p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">Add Facility</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Facility Name *</label>
+                <input type="text" value={newFacility.name} onChange={(e) => setNewFacility({ ...newFacility, name: e.target.value })}
+                  placeholder="e.g., Main Office"
+                  className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Address</label>
+                <input type="text" value={newFacility.address} onChange={(e) => setNewFacility({ ...newFacility, address: e.target.value })}
+                  placeholder="e.g., Via Roma 1, Milano"
+                  className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Type</label>
+                <select value={newFacility.type} onChange={(e) => setNewFacility({ ...newFacility, type: e.target.value })}
+                  className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue">
+                  <option value="office">Office</option>
+                  <option value="warehouse">Warehouse</option>
+                  <option value="factory">Factory</option>
+                  <option value="port">Port Terminal</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button onClick={() => setShowFacilityModal(false)} className="px-4 py-2 text-sm text-gray-400 border border-surface-border rounded-lg hover:bg-surface-hover">Cancel</button>
+              <button onClick={handleAddFacility} disabled={!newFacility.name.trim()}
+                className="px-6 py-2 text-sm primary-gradient text-white rounded-lg hover:opacity-90 disabled:opacity-50">Add Facility</button>
+            </div>
           </div>
         </div>
       )}

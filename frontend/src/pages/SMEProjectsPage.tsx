@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Search, Building2, ChevronRight, BarChart3,
@@ -8,12 +8,13 @@ import { formatTonnes } from '../utils/formatters';
 
 type ProjectStatus = 'draft' | 'data_collection' | 'calculation' | 'review' | 'finalized';
 
-interface SMEProject {
+export interface SMEProject {
   id: string;
-  project_id: string; // SME-YYYY-XXXXX format
+  project_id: string;
   company_name: string;
   industry: string;
   reporting_year: number;
+  base_year?: string;
   status: ProjectStatus;
   scope1_tonnes: number;
   scope2_tonnes: number;
@@ -32,7 +33,7 @@ const STATUS_CONFIG: Record<ProjectStatus, { label: string; color: string; icon:
   finalized: { label: 'Finalized', color: 'bg-brand-green/20 text-brand-green', icon: <CheckCircle className="w-3 h-3" /> },
 };
 
-const DEMO_PROJECTS: SMEProject[] = [
+const SEED_PROJECTS: SMEProject[] = [
   {
     id: '1', project_id: 'SME-2025-00001', company_name: 'TechnoVerde S.r.l.',
     industry: 'Technology', reporting_year: 2025, status: 'data_collection',
@@ -56,15 +57,37 @@ const DEMO_PROJECTS: SMEProject[] = [
   },
 ];
 
+const STORAGE_KEY = 'sme_projects';
+
+function loadProjects(): SMEProject[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch { /* ignore */ }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_PROJECTS));
+  return SEED_PROJECTS;
+}
+
+function saveProjects(projects: SMEProject[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+}
+
 export default function SMEProjectsPage() {
   const navigate = useNavigate();
-  const [projects] = useState<SMEProject[]>(DEMO_PROJECTS);
+  const [projects, setProjects] = useState<SMEProject[]>(loadProjects);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [newProject, setNewProject] = useState({
     company_name: '', industry: 'technology', reporting_year: 2025, base_year: '',
   });
+
+  useEffect(() => {
+    setProjects(loadProjects());
+  }, []);
 
   const filtered = projects.filter((p) => {
     const matchSearch = p.company_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -74,9 +97,36 @@ export default function SMEProjectsPage() {
   });
 
   const handleCreateProject = () => {
-    // In a real app, this would call the API
+    if (!newProject.company_name.trim()) return;
+
+    const nextNum = projects.length + 1;
+    const projectId = `SME-${newProject.reporting_year}-${String(nextNum).padStart(5, '0')}`;
+    const id = `sme_${Date.now()}`;
+    const now = new Date().toISOString().split('T')[0];
+
+    const created: SMEProject = {
+      id,
+      project_id: projectId,
+      company_name: newProject.company_name.trim(),
+      industry: newProject.industry.charAt(0).toUpperCase() + newProject.industry.slice(1),
+      reporting_year: newProject.reporting_year,
+      base_year: newProject.base_year || undefined,
+      status: 'draft',
+      scope1_tonnes: 0,
+      scope2_tonnes: 0,
+      scope3_tonnes: 0,
+      total_co2e_tonnes: 0,
+      completeness_pct: 0,
+      created_at: now,
+      updated_at: now,
+    };
+
+    const updated = [...projects, created];
+    setProjects(updated);
+    saveProjects(updated);
     setShowModal(false);
-    navigate('/sme-projects/new');
+    setNewProject({ company_name: '', industry: 'technology', reporting_year: 2025, base_year: '' });
+    navigate(`/sme-projects/${id}`);
   };
 
   return (
@@ -242,7 +292,7 @@ export default function SMEProjectsPage() {
                 Cancel
               </button>
               <button onClick={handleCreateProject}
-                disabled={!newProject.company_name}
+                disabled={!newProject.company_name.trim()}
                 className="px-6 py-2 text-sm primary-gradient text-white rounded-lg hover:opacity-90 disabled:opacity-50">
                 Create Project
               </button>

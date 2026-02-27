@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, FolderKanban, ChevronRight } from 'lucide-react';
+import { Plus, Search, FolderKanban, ChevronRight, X } from 'lucide-react';
 import { deaspProjectAPI } from '../services/api';
 import { formatTonnes } from '../utils/formatters';
 import type { DEASPProject } from '../types';
@@ -39,15 +39,66 @@ const DEMO_PROJECTS: DEASPProject[] = [
     created_at: '2024-03-01', updated_at: '2024-12-31' },
 ];
 
+const STORAGE_KEY = 'deasp_projects';
+
+function loadProjects(): DEASPProject[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch { /* ignore */ }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(DEMO_PROJECTS));
+  return DEMO_PROJECTS;
+}
+
+function saveProjects(projects: DEASPProject[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+}
+
 export default function DEASPProjectsPage() {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState<DEASPProject[]>(DEMO_PROJECTS);
+  const [projects, setProjects] = useState<DEASPProject[]>(loadProjects);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [showModal, setShowModal] = useState(false);
+  const [newProject, setNewProject] = useState({
+    name: '', description: '', client_id: '1', target_reduction_tonnes: '',
+  });
 
   useEffect(() => {
-    deaspProjectAPI.list().then((res) => setProjects(res.data)).catch(() => {});
+    deaspProjectAPI.list().then((res) => {
+      if (res.data && res.data.length > 0) setProjects(res.data);
+    }).catch(() => {});
   }, []);
+
+  const handleCreateProject = () => {
+    if (!newProject.name.trim()) return;
+    const id = `dp_${Date.now()}`;
+    const now = new Date().toISOString().split('T')[0];
+    const created: DEASPProject = {
+      id,
+      client_id: newProject.client_id,
+      name: newProject.name.trim(),
+      description: newProject.description,
+      status: 'planning',
+      target_reduction_tonnes: parseFloat(newProject.target_reduction_tonnes) || undefined,
+      baseline_emissions_tonnes: 0,
+      current_emissions_tonnes: 0,
+      progress_pct: 0,
+      start_date: now,
+      reporting_year: new Date().getFullYear(),
+      created_at: now,
+      updated_at: now,
+    };
+    const updated = [...projects, created];
+    setProjects(updated);
+    saveProjects(updated);
+    setShowModal(false);
+    setNewProject({ name: '', description: '', client_id: '1', target_reduction_tonnes: '' });
+    navigate(`/deasp-projects/${id}`);
+  };
 
   const filtered = projects.filter((p) => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase());
@@ -62,7 +113,8 @@ export default function DEASPProjectsPage() {
           <h1 className="text-2xl font-bold text-white">DEASP Projects</h1>
           <p className="text-sm text-gray-400 mt-1">Emission reduction project tracking</p>
         </div>
-        <button className="flex items-center space-x-2 px-4 py-2 primary-gradient text-white rounded-lg hover:opacity-90 text-sm">
+        <button onClick={() => setShowModal(true)}
+          className="flex items-center space-x-2 px-4 py-2 primary-gradient text-white rounded-lg hover:opacity-90 text-sm">
           <Plus className="w-4 h-4" /><span>New Project</span>
         </button>
       </div>
@@ -146,6 +198,43 @@ export default function DEASPProjectsPage() {
           </div>
         ))}
       </div>
+
+      {/* Create Project Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface-card rounded-2xl border border-surface-border w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">Create DEASP Project</h2>
+              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Project Name *</label>
+                <input type="text" value={newProject.name} onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
+                  placeholder="e.g., Riduzione Emissioni Hotelling 2025"
+                  className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Description</label>
+                <input type="text" value={newProject.description} onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
+                  placeholder="Brief project description"
+                  className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Target Reduction (tCO2)</label>
+                <input type="number" value={newProject.target_reduction_tonnes} onChange={(e) => setNewProject({ ...newProject, target_reduction_tonnes: e.target.value })}
+                  placeholder="e.g., 500"
+                  className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-400 border border-surface-border rounded-lg hover:bg-surface-hover">Cancel</button>
+              <button onClick={handleCreateProject} disabled={!newProject.name.trim()}
+                className="px-6 py-2 text-sm primary-gradient text-white rounded-lg hover:opacity-90 disabled:opacity-50">Create Project</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

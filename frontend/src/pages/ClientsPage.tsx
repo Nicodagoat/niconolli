@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Users, ChevronRight } from 'lucide-react';
+import { Plus, Search, Users, ChevronRight, X } from 'lucide-react';
 import { clientAPI } from '../services/api';
 import { formatTonnes } from '../utils/formatters';
 import type { Client } from '../types';
@@ -10,7 +10,7 @@ const STATUS_COLORS: Record<string, string> = {
   inactive: 'bg-gray-600/20 text-gray-400',
 };
 
-const DEMO_CLIENTS: Client[] = [
+const SEED_CLIENTS: Client[] = [
   { id: '1', name: 'Porto di Augusta S.r.l.', industry: 'transportation', status: 'active',
     contact_name: 'Marco Ferretti', contact_email: 'm.ferretti@portoaugusta.it', country: 'ITA',
     total_scope1_tonnes: 1250.3, total_scope2_tonnes: 890.4, total_scope3_tonnes: 2685.0,
@@ -29,14 +29,38 @@ const DEMO_CLIENTS: Client[] = [
     total_co2e_tonnes: 2130.0, created_at: '2024-04-20', updated_at: '2024-08-30' },
 ];
 
+const STORAGE_KEY = 'clients';
+
+function loadClients(): Client[] {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch { /* ignore */ }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_CLIENTS));
+  return SEED_CLIENTS;
+}
+
+function saveClients(clients: Client[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(clients));
+}
+
 export default function ClientsPage() {
   const navigate = useNavigate();
-  const [clients, setClients] = useState<Client[]>(DEMO_CLIENTS);
+  const [clients, setClients] = useState<Client[]>(loadClients);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [showModal, setShowModal] = useState(false);
+  const [newClient, setNewClient] = useState({
+    name: '', contact_name: '', contact_email: '', industry: 'transportation', country: 'ITA',
+  });
 
   useEffect(() => {
-    clientAPI.list().then((res) => setClients(res.data)).catch(() => {});
+    clientAPI.list().then((res) => {
+      if (res.data && res.data.length > 0) setClients(res.data);
+    }).catch(() => {});
   }, []);
 
   const filtered = clients.filter((c) => {
@@ -45,6 +69,32 @@ export default function ClientsPage() {
     return matchSearch && matchStatus;
   });
 
+  const handleAddClient = () => {
+    if (!newClient.name.trim()) return;
+    const id = `client_${Date.now()}`;
+    const now = new Date().toISOString().split('T')[0];
+    const created: Client = {
+      id,
+      name: newClient.name.trim(),
+      industry: newClient.industry,
+      status: 'active',
+      contact_name: newClient.contact_name,
+      contact_email: newClient.contact_email,
+      country: newClient.country,
+      total_scope1_tonnes: 0,
+      total_scope2_tonnes: 0,
+      total_scope3_tonnes: 0,
+      total_co2e_tonnes: 0,
+      created_at: now,
+      updated_at: now,
+    };
+    const updated = [...clients, created];
+    setClients(updated);
+    saveClients(updated);
+    setShowModal(false);
+    setNewClient({ name: '', contact_name: '', contact_email: '', industry: 'transportation', country: 'ITA' });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -52,7 +102,8 @@ export default function ClientsPage() {
           <h1 className="text-2xl font-bold text-white">Clients</h1>
           <p className="text-sm text-gray-400 mt-1">Manage your client portfolio</p>
         </div>
-        <button className="flex items-center space-x-2 px-4 py-2 primary-gradient text-white rounded-lg hover:opacity-90 text-sm">
+        <button onClick={() => setShowModal(true)}
+          className="flex items-center space-x-2 px-4 py-2 primary-gradient text-white rounded-lg hover:opacity-90 text-sm">
           <Plus className="w-4 h-4" /><span>Add Client</span>
         </button>
       </div>
@@ -114,6 +165,63 @@ export default function ClientsPage() {
           </div>
         ))}
       </div>
+
+      {/* Add Client Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface-card rounded-2xl border border-surface-border w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">Add New Client</h2>
+              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Client Name *</label>
+                <input type="text" value={newClient.name} onChange={(e) => setNewClient({ ...newClient, name: e.target.value })}
+                  placeholder="e.g., Porto di Augusta S.r.l."
+                  className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Contact Name</label>
+                  <input type="text" value={newClient.contact_name} onChange={(e) => setNewClient({ ...newClient, contact_name: e.target.value })}
+                    placeholder="First Last"
+                    className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Contact Email</label>
+                  <input type="email" value={newClient.contact_email} onChange={(e) => setNewClient({ ...newClient, contact_email: e.target.value })}
+                    placeholder="email@company.com"
+                    className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Industry</label>
+                  <select value={newClient.industry} onChange={(e) => setNewClient({ ...newClient, industry: e.target.value })}
+                    className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue">
+                    <option value="transportation">Transportation</option>
+                    <option value="manufacturing">Manufacturing</option>
+                    <option value="energy">Energy</option>
+                    <option value="services">Services</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Country</label>
+                  <input type="text" value={newClient.country} onChange={(e) => setNewClient({ ...newClient, country: e.target.value })}
+                    className="w-full rounded-lg bg-brand-dark border border-surface-border p-2.5 text-sm text-white focus:outline-none focus:border-brand-blue" />
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-400 border border-surface-border rounded-lg hover:bg-surface-hover">Cancel</button>
+              <button onClick={handleAddClient} disabled={!newClient.name.trim()}
+                className="px-6 py-2 text-sm primary-gradient text-white rounded-lg hover:opacity-90 disabled:opacity-50">Add Client</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
