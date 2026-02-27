@@ -1,1083 +1,1607 @@
 /* ══════════════════════════════════════════
-   COUPLE BUDGET PWA — app.js
-   Zero-friction expense logging in 3 seconds
+   COUPLE BUDGET PWA — app.js v3
+   Real-time sync + Fixed Costs + Split expenses
 ══════════════════════════════════════════ */
-
 'use strict';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+/* ─── Constants ─── */
+const STORAGE_KEY = 'couplebudget_v3';
+const DEVICE_KEY  = 'couplebudget_deviceid';
+const SYNC_CH     = 'couplebudget_v3';
 
-const STORAGE_KEY  = 'couplebudget_v2';
-const APP_VERSION  = '1.0.0';
-
-const CATEGORIES = [
-  { name: 'Food',          icon: '🍔' },
-  { name: 'Transport',     icon: '🚌' },
-  { name: 'Shopping',      icon: '🛍️' },
-  { name: 'Housing',       icon: '🏠' },
-  { name: 'Entertainment', icon: '🎬' },
-  { name: 'Health',        icon: '💊' },
-  { name: 'Other',         icon: '📝' },
-];
-
-// Keyword → category mapping for smart note suggestions
-const SUGGESTIONS = {
-  starbucks:'Food', coffee:'Food', café:'Food', cafe:'Food',
-  restaurant:'Food', pizza:'Food', sushi:'Food', burger:'Food',
-  lunch:'Food', dinner:'Food', breakfast:'Food', brunch:'Food',
-  grocery:'Food', groceries:'Food', supermarket:'Food', market:'Food',
-  uber:'Transport', lyft:'Transport', taxi:'Transport', bolt:'Transport',
-  bus:'Transport', metro:'Transport', train:'Transport', tram:'Transport',
-  fuel:'Transport', gas:'Transport', petrol:'Transport', parking:'Transport',
-  amazon:'Shopping', zara:'Shopping', ikea:'Shopping', hm:'Shopping',
-  netflix:'Entertainment', spotify:'Entertainment', cinema:'Entertainment',
-  movie:'Entertainment', concert:'Entertainment', theatre:'Entertainment',
-  gym:'Health', pharmacy:'Health', doctor:'Health', dentist:'Health',
-  hospital:'Health', medicine:'Health',
-  rent:'Housing', mortgage:'Housing', electricity:'Housing',
-  internet:'Housing', phone:'Housing', utility:'Housing',
+const FIXED_ICONS = {
+  Rent:'🏠', Mortgage:'🏦', Insurance:'🛡️', Electric:'⚡', Water:'💧',
+  Gas:'🔥', Internet:'📡', Phone:'📱', Gym:'💪', Netflix:'📺',
+  Spotify:'🎵', Metro:'🚇', Parking:'🅿️', Loan:'💳', Other:'📌'
 };
 
-// ─── Default state ─────────────────────────────────────────────────────────────
+const VAR_CATEGORIES = [
+  {name:'Food',      icon:'🍔'},
+  {name:'Transport', icon:'🚌'},
+  {name:'Fun',       icon:'🎉'},
+  {name:'Shopping',  icon:'🛍️'},
+  {name:'Health',    icon:'💊'},
+  {name:'Home',      icon:'🏡'},
+  {name:'Other',     icon:'📦'},
+];
 
+const DEFAULT_FIXED = [
+  {id:'fc_rent',      name:'Rent',      amount:0, dueDay:1,  paidBy:'joint', splitRatio:0.5, icon:'🏠', category:'Housing'},
+  {id:'fc_internet',  name:'Internet',  amount:0, dueDay:5,  paidBy:'joint', splitRatio:0.5, icon:'📡', category:'Utilities'},
+  {id:'fc_electric',  name:'Electric',  amount:0, dueDay:10, paidBy:'joint', splitRatio:0.5, icon:'⚡', category:'Utilities'},
+];
+
+/* ─── State ─── */
+let state = null;
+let syncMgr = null;
+let currentScreen = 'expense-entry';
+let wizardStep = 0;
+let currentMonthKey = getMonthKey();
+let currentHistoryMonth = getMonthKey();
+let amountStr = '0';
+let selectedCategory = 'Food';
+let selectedType = 'joint';
+let paidBy = 'me';
+let splitRatio = 50;
+let isFixedSelected = false;
+let selectedFixedId = null;
+
+/* ─── Utilities ─── */
+function getMonthKey(d) {
+  const date = d || new Date();
+  return date.getFullYear() + '-' + String(date.getMonth()+1).padStart(2,'0');
+}
+
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+
+function generateDeviceId() {
+  return 'dev_' + generateId() + generateId();
+}
+
+function fmt(n, currency) {
+  const c = currency || (state && state.settings.currency) || '€';
+  const abs = Math.abs(n);
+  const str = abs % 1 === 0 ? abs.toFixed(0) : abs.toFixed(2);
+  return (n < 0 ? '-' : '') + c + str;
+}
+
+function dayOfMonth() { return new Date().getDate(); }
+
+/* ─── Default State ─── */
 function defaultState() {
   return {
-    version: APP_VERSION,
+    deviceId: getOrCreateDeviceId(),
+    pairedPeerId: null,
+    pendingSync: [],
     settings: {
-      currency:    '€',
-      users:       [
-        { id: 'user1', name: 'Partner 1' },
-        { id: 'user2', name: 'Partner 2' },
-      ],
+      currency: '€',
+      users: [{id:'user1', name:'Alex'}, {id:'user2', name:'Jordan'}],
       currentUser: 'user1',
-      categories:  CATEGORIES.map(c => c.name),
+      categories: VAR_CATEGORIES.map(c => c.name),
+      fixedCosts: [],
+      notifications: true,
     },
-    months:       {},  // keyed by 'YYYY-MM'
-    lastCategory: 'Food',
-    lastType:     'joint',
-    lastTx:       null,   // for "repeat last" feature
+    months: {},
   };
 }
 
-let state = defaultState();
+function getOrCreateDeviceId() {
+  let id = localStorage.getItem(DEVICE_KEY);
+  if (!id) { id = generateDeviceId(); localStorage.setItem(DEVICE_KEY, id); }
+  return id;
+}
 
-// ─── Persistence ───────────────────────────────────────────────────────────────
+function ensureMonth(key) {
+  key = key || currentMonthKey;
+  if (!state.months[key]) {
+    state.months[key] = {
+      joint:      { total: 0, allocated: {} },
+      personal:   { user1: { total: 0 }, user2: { total: 0 } },
+      unforeseen: { total: 0 },
+      transactions: [],
+      fixedPaid: {},
+      ious: [],
+    };
+  }
+  return state.months[key];
+}
 
+/* ─── Persistence ─── */
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const saved = JSON.parse(raw);
-      // Merge to pick up any new default fields
-      state = Object.assign(defaultState(), saved);
-      // Ensure users array always has 2 entries
-      if (!state.settings.users || state.settings.users.length < 2) {
-        state.settings.users = defaultState().settings.users;
-      }
+      const parsed = JSON.parse(raw);
+      state = parsed;
+      if (!state.settings.fixedCosts) state.settings.fixedCosts = [];
+      if (!state.pendingSync) state.pendingSync = [];
+      if (!state.deviceId) state.deviceId = getOrCreateDeviceId();
+      return true;
     }
-  } catch (e) {
-    console.warn('Failed to load state, starting fresh:', e);
-    state = defaultState();
-  }
+  } catch(e) { console.warn('Load error', e); }
+  return false;
 }
 
 function saveState() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.error('Failed to save state:', e);
-    showToast('Failed to save — storage full?', 'error');
-  }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) { console.warn('Save error', e); }
 }
 
-// ─── Month helpers ─────────────────────────────────────────────────────────────
+/* ─── Budget Math ─── */
+function getFixedTotals(monthKey) {
+  monthKey = monthKey || currentMonthKey;
+  const month = state.months[monthKey];
+  const fixedCosts = state.settings.fixedCosts;
 
-function currentMonthKey() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const jointFixed = fixedCosts.filter(fc => fc.paidBy === 'joint' || fc.paidBy === 'split');
+  const fixedTotal = jointFixed.reduce((s, fc) => s + fc.amount, 0);
+
+  const jointTotal = month ? month.joint.total : 0;
+  const variableTotal = Math.max(0, jointTotal - fixedTotal);
+
+  const txs = month ? month.transactions : [];
+  const fixedSpent = txs.filter(t => t.type === 'joint' && t.isFixed).reduce((s,t) => s + t.amount, 0);
+  const variableSpent = txs.filter(t => t.type === 'joint' && !t.isFixed).reduce((s,t) => s + t.amount, 0);
+  const personalSpent = {
+    user1: txs.filter(t => t.type === 'personal' && t.userId === 'user1').reduce((s,t) => s + t.amount, 0),
+    user2: txs.filter(t => t.type === 'personal' && t.userId === 'user2').reduce((s,t) => s + t.amount, 0),
+  };
+  const unforeseenSpent = txs.filter(t => t.type === 'unforeseen').reduce((s,t) => s + t.amount, 0);
+
+  return {
+    fixedTotal, fixedSpent,
+    variableTotal, variableSpent,
+    variableRemaining: variableTotal - variableSpent,
+    personalSpent,
+    unforeseenTotal: month ? month.unforeseen.total : 0,
+    unforeseenSpent,
+    jointTotal,
+  };
 }
 
-function getCurrentMonth() {
-  return state.months[currentMonthKey()] || null;
-}
-
-function needsSetup() {
-  const m = getCurrentMonth();
-  return !m || m.joint.total === 0;
-}
-
-function monthLabel(key) {
-  const [y, mo] = key.split('-').map(Number);
-  return new Date(y, mo - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
-}
-
-function currentMonthLabel() {
-  return new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
-}
-
-// ─── UI State ──────────────────────────────────────────────────────────────────
-
-let currentScreen    = 'expense-entry';
-let currentAmount    = '';            // string as user types
-let selectedCategory = 'Food';
-let selectedType     = 'joint';       // joint | personal | unforeseen
-
-// ─── Boot ──────────────────────────────────────────────────────────────────────
-
-document.addEventListener('DOMContentLoaded', () => {
-  loadState();
-  registerSW();
-
-  selectedCategory = state.lastCategory || 'Food';
-  selectedType     = state.lastType     || 'joint';
-
-  bindStaticEvents();
-
-  // Handle quick-launch shortcuts from manifest
-  const params = new URLSearchParams(location.search);
-  const quick  = params.get('quick');
-  if (quick) {
-    const match = CATEGORIES.find(c => c.name.toLowerCase() === quick.toLowerCase());
-    if (match) selectedCategory = match.name;
-  }
-
-  if (needsSetup()) {
-    showSetupWizard();
-  } else {
-    showScreen('expense-entry');
-  }
-});
-
-// ─── Service Worker ────────────────────────────────────────────────────────────
-
-function registerSW() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  }
-}
-
-// ─── Screen management ─────────────────────────────────────────────────────────
-
-function showScreen(id) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  const el = document.getElementById(id);
-  if (el) el.classList.add('active');
-
-  currentScreen = id;
-
-  // Update bottom nav highlight
-  document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.screen === id);
+function getDueSoonFixed() {
+  const today = dayOfMonth();
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate();
+  return state.settings.fixedCosts.filter(fc => {
+    const daysUntil = fc.dueDay >= today
+      ? fc.dueDay - today
+      : daysInMonth - today + fc.dueDay;
+    return daysUntil <= 7;
   });
+}
+
+function isFixedPaid(fcId, monthKey) {
+  monthKey = monthKey || currentMonthKey;
+  const month = state.months[monthKey];
+  return !!(month && month.fixedPaid[fcId] && month.fixedPaid[fcId].paid);
+}
+
+/* ─── SYNC MANAGER ─── */
+class SyncManager {
+  constructor(deviceId) {
+    this.deviceId = deviceId;
+    this.bc = null;
+    this.peer = null;
+    this.conn = null;
+    this.status = 'offline';
+    this.peerId = null;
+    this.listeners = [];
+    this._heartbeatTimer = null;
+    this.initBC();
+  }
+
+  initBC() {
+    if (!('BroadcastChannel' in window)) return;
+    try {
+      this.bc = new BroadcastChannel(SYNC_CH);
+      this.bc.onmessage = (e) => {
+        if (e.data && e.data.deviceId !== this.deviceId) {
+          this._onData(e.data);
+        }
+      };
+    } catch(e) {}
+  }
+
+  async initPeer() {
+    if (this.peer) return Promise.resolve(this.peerId);
+    await this._loadPeerJS();
+    return new Promise((resolve, reject) => {
+      const peerId = this.deviceId.replace(/[^a-z0-9]/gi,'').slice(0, 20).toLowerCase();
+      try {
+        this.peer = new Peer(peerId);
+        this.peer.on('open', (id) => {
+          this.peerId = id;
+          this.updateStatus('ready');
+          resolve(id);
+        });
+        this.peer.on('connection', (conn) => this._setupConn(conn));
+        this.peer.on('error', (err) => {
+          console.warn('[Sync] PeerJS error', err.type);
+          this.updateStatus('offline');
+          reject(err);
+        });
+      } catch(e) { reject(e); }
+    });
+  }
+
+  _loadPeerJS() {
+    if (typeof Peer !== 'undefined') return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  async connect(partnerPeerId) {
+    await this.initPeer();
+    return new Promise((resolve, reject) => {
+      const conn = this.peer.connect(partnerPeerId);
+      const timer = setTimeout(() => reject(new Error('timeout')), 30000);
+      conn.on('open', () => {
+        clearTimeout(timer);
+        this._setupConn(conn);
+        resolve(conn);
+      });
+      conn.on('error', (e) => { clearTimeout(timer); reject(e); });
+    });
+  }
+
+  _setupConn(conn) {
+    this.conn = conn;
+    conn.on('data', (data) => this._onData(data));
+    conn.on('close', () => {
+      this.conn = null;
+      this.updateStatus('offline');
+    });
+    conn.on('error', () => {
+      this.conn = null;
+      this.updateStatus('offline');
+    });
+    this.updateStatus('connected');
+    this._startHeartbeat();
+    // request state sync from partner
+    this.send({ type: 'sync_request', requestFull: true });
+  }
+
+  _startHeartbeat() {
+    clearInterval(this._heartbeatTimer);
+    this._heartbeatTimer = setInterval(() => {
+      if (this.conn && this.conn.open) {
+        this.send({ type: 'heartbeat' });
+      } else {
+        clearInterval(this._heartbeatTimer);
+      }
+    }, 30000);
+  }
+
+  send(data) {
+    const packet = { ...data, deviceId: this.deviceId, timestamp: Date.now() };
+    if (this.bc) { try { this.bc.postMessage(packet); } catch(e) {} }
+    if (this.conn && this.conn.open) { try { this.conn.send(packet); } catch(e) {} }
+  }
+
+  _onData(packet) {
+    this.listeners.forEach(fn => fn(packet));
+  }
+
+  onData(fn) { this.listeners.push(fn); }
+
+  updateStatus(status) {
+    this.status = status;
+    renderSyncChip(status);
+  }
+
+  getPairingCode() {
+    if (!this.peerId) return null;
+    return this.peerId.slice(-6).toUpperCase();
+  }
+
+  disconnect() {
+    if (this.conn) { try { this.conn.close(); } catch(e) {} this.conn = null; }
+    if (this.peer) { try { this.peer.destroy(); } catch(e) {} this.peer = null; }
+    this.updateStatus('offline');
+  }
+}
+
+/* ─── Sync handlers ─── */
+function initSync() {
+  syncMgr = new SyncManager(state.deviceId);
+  syncMgr.onData((packet) => {
+    handleSyncPacket(packet);
+  });
+
+  // Flush pending offline queue
+  if (state.pendingSync && state.pendingSync.length > 0) {
+    state.pendingSync.forEach(tx => {
+      syncMgr.send({ type: 'expense', transaction: tx, monthKey: currentMonthKey });
+    });
+    state.pendingSync = [];
+    saveState();
+  }
+
+  // If previously paired, try to reconnect
+  if (state.pairedPeerId) {
+    syncMgr.initPeer().then(() => {
+      syncMgr.connect(state.pairedPeerId).catch(() => {});
+    }).catch(() => {});
+  }
+}
+
+function handleSyncPacket(packet) {
+  if (!packet || !packet.type) return;
+
+  switch (packet.type) {
+    case 'expense': {
+      const mk = packet.monthKey || currentMonthKey;
+      const month = ensureMonth(mk);
+      const tx = packet.transaction;
+      if (tx && !month.transactions.find(t => t.id === tx.id)) {
+        month.transactions.push(tx);
+        if (tx.isFixed && tx.fixedCostId) {
+          month.fixedPaid[tx.fixedCostId] = { paid: true, paidAt: tx.date, paidBy: tx.paidBy };
+        }
+        saveState();
+        const partnerName = getPartnerName();
+        showPartnerToast(partnerName + ' logged ' + fmt(tx.amount) + ' ' + tx.category);
+        if (mk === currentMonthKey) renderCurrentScreen();
+      }
+      break;
+    }
+    case 'fixed_update': {
+      const mk = packet.monthKey || currentMonthKey;
+      const month = ensureMonth(mk);
+      if (packet.fixedCostId) {
+        month.fixedPaid[packet.fixedCostId] = packet.status;
+        saveState();
+        if (mk === currentMonthKey) renderCurrentScreen();
+      }
+      break;
+    }
+    case 'sync_request': {
+      if (packet.requestFull) {
+        // Send our current month state
+        const month = ensureMonth(currentMonthKey);
+        syncMgr.send({ type: 'state_sync', monthKey: currentMonthKey, month });
+      }
+      break;
+    }
+    case 'state_sync': {
+      const mk = packet.monthKey;
+      if (mk && packet.month) {
+        const existing = ensureMonth(mk);
+        // Merge transactions (deduplicate by id)
+        const existingIds = new Set(existing.transactions.map(t => t.id));
+        packet.month.transactions.forEach(tx => {
+          if (!existingIds.has(tx.id)) existing.transactions.push(tx);
+        });
+        // Merge fixedPaid
+        Object.assign(existing.fixedPaid, packet.month.fixedPaid || {});
+        // Merge ious
+        const existingIouIds = new Set(existing.ious.map(i => i.id));
+        (packet.month.ious || []).forEach(iou => {
+          if (!existingIouIds.has(iou.id)) existing.ious.push(iou);
+        });
+        saveState();
+        if (mk === currentMonthKey) renderCurrentScreen();
+      }
+      break;
+    }
+    case 'heartbeat':
+      break;
+  }
+}
+
+function broadcastExpense(tx, monthKey) {
+  if (!syncMgr) return;
+  const packet = { type: 'expense', transaction: tx, monthKey: monthKey || currentMonthKey };
+  try {
+    syncMgr.send(packet);
+  } catch(e) {
+    // queue for later
+    state.pendingSync.push(tx);
+    saveState();
+  }
+}
+
+/* ─── Render sync chip ─── */
+function renderSyncChip(status) {
+  const chip = document.getElementById('sync-chip');
+  if (!chip) return;
+  const dot = chip.querySelector('.sync-dot');
+  const label = chip.querySelector('.sync-label');
+  chip.className = 'sync-chip sync-' + status;
+  const labels = { offline:'Offline', ready:'Ready', connected:'Synced', syncing:'Syncing...' };
+  if (label) label.textContent = labels[status] || status;
+}
+
+function getPartnerName() {
+  const me = state.settings.currentUser;
+  const partner = state.settings.users.find(u => u.id !== me);
+  return partner ? partner.name : 'Partner';
+}
+
+function getMyName() {
+  const me = state.settings.users.find(u => u.id === state.settings.currentUser);
+  return me ? me.name : 'Me';
+}
+
+/* ─── Partner toast ─── */
+function showPartnerToast(msg) {
+  const el = document.createElement('div');
+  el.className = 'partner-toast';
+  el.textContent = '👥 ' + msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+/* ─── SCREEN MANAGEMENT ─── */
+function showScreen(screenId) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const screen = document.getElementById(screenId);
+  if (screen) screen.classList.add('active');
+  currentScreen = screenId;
+
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.screen === screenId);
+  });
+
+  // Hide nav during setup
+  const nav = document.getElementById('bottom-nav');
+  if (nav) nav.style.display = screenId === 'setup-wizard' ? 'none' : '';
 
   // Render screen content
-  if      (id === 'expense-entry')  { renderExpenseEntry(); }
-  else if (id === 'status-screen')  { renderStatusScreen(); }
-  else if (id === 'history-screen') { renderHistoryScreen(); }
-  else if (id === 'profile-screen') { renderProfileScreen(); }
+  switch (screenId) {
+    case 'expense-entry':  renderExpenseEntry(); break;
+    case 'status-screen':  renderStatusScreen(); break;
+    case 'history-screen': renderHistoryScreen(); break;
+    case 'profile-screen': renderProfileScreen(); break;
+  }
 }
 
-// ─── Static event binding ─────────────────────────────────────────────────────
+function renderCurrentScreen() {
+  showScreen(currentScreen);
+}
 
-function bindStaticEvents() {
-  // Bottom nav
-  document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (btn.dataset.screen) showScreen(btn.dataset.screen);
-    });
-  });
+/* ─── MINI STATUS BAR ─── */
+function renderMiniStatus() {
+  const el = document.getElementById('mini-status');
+  if (!el) return;
+  const month = state.months[currentMonthKey];
+  if (!month) { el.innerHTML = '<span>Set up your budget →</span>'; return; }
 
-  // Number pad (event delegation)
-  document.getElementById('numpad').addEventListener('click', e => {
-    const btn = e.target.closest('.num-btn');
-    if (btn) handleNumpad(btn.dataset.value);
-  });
+  const t = getFixedTotals(currentMonthKey);
+  const jointRemaining = t.variableRemaining;
+  const me = state.settings.currentUser;
+  const personalMonth = month.personal[me] || { total: 0 };
+  const personalSpent = t.personalSpent[me] || 0;
+  const personalRemaining = personalMonth.total - personalSpent;
 
-  // Submit
-  document.getElementById('submit-btn').addEventListener('click', submitExpense);
+  el.innerHTML =
+    '<span class="s-joint">Joint ' + fmt(jointRemaining) + '</span>' +
+    '<span class="s-personal">Mine ' + fmt(personalRemaining) + '</span>' +
+    (month.unforeseen.total > 0 ? '<span class="s-unforeseen">Unf. ' + fmt(month.unforeseen.total - t.unforeseenSpent) + '</span>' : '');
+}
 
-  // Repeat last
-  document.getElementById('repeat-btn').addEventListener('click', repeatLast);
+/* ─── DUE-SOON BAR ─── */
+function renderDueSoonBar() {
+  const bar = document.getElementById('due-soon-bar');
+  if (!bar) return;
+  bar.innerHTML = '';
+  if (!state.settings.fixedCosts.length) return;
 
-  // Note smart suggestions
-  document.getElementById('expense-note').addEventListener('input', e => {
-    suggestCategory(e.target.value);
-  });
-
-  // Mini status → go to Status screen
-  document.getElementById('mini-status').addEventListener('click', () => {
-    showScreen('status-screen');
-  });
-
-  // Modal backdrop dismiss
-  document.getElementById('modal-overlay').addEventListener('click', e => {
-    if (e.target === document.getElementById('modal-overlay')) closeModal();
-  });
-
-  // Hardware keyboard support (for desktop testing)
-  document.addEventListener('keydown', e => {
-    if (currentScreen !== 'expense-entry') return;
-    if (document.activeElement === document.getElementById('expense-note')) return;
-    if (e.key >= '0' && e.key <= '9') { handleNumpad(e.key); return; }
-    if (e.key === '.') { handleNumpad('.'); return; }
-    if (e.key === 'Backspace') { handleNumpad('backspace'); return; }
-    if (e.key === 'Enter') { submitExpense(); return; }
-  });
-
-  // Budget type toggle buttons
-  document.querySelectorAll('.type-toggle-btn').forEach(btn => {
-    btn.addEventListener('click', () => selectType(btn.dataset.type));
+  const dueSoon = getDueSoonFixed();
+  dueSoon.forEach(fc => {
+    const paid = isFixedPaid(fc.id);
+    const btn = document.createElement('button');
+    btn.className = 'due-soon-btn' + (paid ? ' paid' : '');
+    const today = dayOfMonth();
+    const daysLeft = fc.dueDay >= today ? fc.dueDay - today : 0;
+    const dueText = daysLeft === 0 ? 'Today' : daysLeft === 1 ? 'Tomorrow' : 'Due ' + fc.dueDay;
+    btn.innerHTML = fc.icon + ' ' + fc.name + ' ' + fmt(fc.amount) + ' <small style="opacity:.7">· ' + dueText + '</small>';
+    if (!paid) {
+      btn.addEventListener('click', () => quickPayFixed(fc));
+    }
+    bar.appendChild(btn);
   });
 }
 
-// ─── Expense Entry Screen ──────────────────────────────────────────────────────
-
-function renderExpenseEntry() {
-  updateAmountDisplay();
-  renderTypeToggle();
-  renderCategoryPills();
-  updateMiniStatus();
-  updateBodyTypeClass();
+function quickPayFixed(fc) {
+  amountStr = String(fc.amount);
+  selectedCategory = fc.name;
+  isFixedSelected = true;
+  selectedFixedId = fc.id;
+  renderExpenseEntry();
+  document.getElementById('amount-display').textContent = fc.amount;
 }
 
-function renderTypeToggle() {
-  document.querySelectorAll('.type-toggle-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.type === selectedType);
-  });
-}
-
+/* ─── CATEGORY PILLS ─── */
 function renderCategoryPills() {
   const container = document.getElementById('category-pills');
   if (!container) return;
+  container.innerHTML = '';
 
-  container.innerHTML = state.settings.categories.map(name => {
-    const cat  = CATEGORIES.find(c => c.name === name) || { icon: '📝' };
-    const isSel = selectedCategory === name;
-    const cls  = isSel ? `selected-${selectedType}` : '';
-    return `<button class="category-pill ${cls}" data-cat="${name}" aria-pressed="${isSel}">
-              ${cat.icon} ${name}
-            </button>`;
-  }).join('');
+  const fixedCosts = state.settings.fixedCosts;
 
-  container.querySelectorAll('.category-pill').forEach(pill => {
-    pill.addEventListener('click', () => selectCategory(pill.dataset.cat));
+  // Fixed cost pills
+  if (fixedCosts.length) {
+    fixedCosts.forEach(fc => {
+      const paid = isFixedPaid(fc.id);
+      const pill = document.createElement('button');
+      const isSelected = isFixedSelected && selectedFixedId === fc.id;
+      pill.className = 'category-pill fixed-pill' +
+        (paid ? ' paid-pill' : '') +
+        (isSelected ? ' selected-' + selectedType : '');
+      pill.innerHTML = fc.icon + ' ' + fc.name + ' <span style="opacity:.7;font-size:11px">' + fmt(fc.amount) + '</span>';
+      pill.addEventListener('click', () => selectFixedCategory(fc));
+      container.appendChild(pill);
+    });
+
+    // Divider
+    const div = document.createElement('div');
+    div.className = 'pills-divider';
+    container.appendChild(div);
+  }
+
+  // Variable category pills
+  VAR_CATEGORIES.forEach(cat => {
+    const pill = document.createElement('button');
+    const isSelected = !isFixedSelected && selectedCategory === cat.name;
+    pill.className = 'category-pill' + (isSelected ? ' selected-' + selectedType : '');
+    pill.textContent = cat.icon + ' ' + cat.name;
+    pill.addEventListener('click', () => selectVariableCategory(cat.name));
+    container.appendChild(pill);
+  });
+}
+
+function selectFixedCategory(fc) {
+  isFixedSelected = true;
+  selectedFixedId = fc.id;
+  selectedCategory = fc.name;
+  amountStr = String(fc.amount);
+  document.getElementById('amount-display').textContent = fc.amount;
+  renderCategoryPills();
+}
+
+function selectVariableCategory(name) {
+  isFixedSelected = false;
+  selectedFixedId = null;
+  selectedCategory = name;
+  renderCategoryPills();
+}
+
+/* ─── SPLIT PANEL ─── */
+function initSplitPanel() {
+  const toggleBtn = document.getElementById('split-toggle-btn');
+  const panel = document.getElementById('split-panel');
+  if (!toggleBtn || !panel) return;
+
+  toggleBtn.addEventListener('click', () => {
+    const expanded = toggleBtn.getAttribute('aria-expanded') === 'true';
+    toggleBtn.setAttribute('aria-expanded', !expanded);
+    panel.hidden = expanded;
   });
 
-  // Scroll selected into view
-  const sel = container.querySelector('.category-pill[aria-pressed="true"]');
-  if (sel) sel.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  // Paid-by buttons
+  document.querySelectorAll('.paid-by-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.paid-by-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      paidBy = btn.dataset.paid;
+      const ratioRow = document.getElementById('split-ratio-row');
+      if (ratioRow) ratioRow.hidden = (paidBy !== 'both');
+      updateIouPreview();
+    });
+  });
+
+  // Split ratio slider
+  const slider = document.getElementById('split-ratio');
+  if (slider) {
+    slider.addEventListener('input', () => {
+      splitRatio = parseInt(slider.value);
+      slider.style.setProperty('--val', splitRatio + '%');
+      document.getElementById('split-me-pct').textContent = splitRatio + '%';
+      document.getElementById('split-partner-pct').textContent = (100 - splitRatio) + '%';
+      updateIouPreview();
+    });
+  }
+
+  // Update names
+  const myNameEl = document.getElementById('split-my-name');
+  const partnerNameEl = document.getElementById('split-partner-name');
+  if (myNameEl) myNameEl.textContent = getMyName();
+  if (partnerNameEl) partnerNameEl.textContent = getPartnerName();
 }
 
-function selectCategory(name) {
-  selectedCategory = name;
-  state.lastCategory = name;
-  vibrate(10);
+function updateIouPreview() {
+  const preview = document.getElementById('iou-preview');
+  if (!preview) return;
+  const amount = parseFloat(amountStr) || 0;
+  if (paidBy !== 'both' || amount === 0 || splitRatio === 50) {
+    preview.hidden = true;
+    return;
+  }
+  preview.hidden = false;
+  const myShare = (amount * splitRatio / 100).toFixed(2);
+  const partnerShare = (amount * (100 - splitRatio) / 100).toFixed(2);
+  const partnerName = getPartnerName();
+  const myName = getMyName();
+  preview.textContent = myName + ' owes ' + fmt(myShare) + ' · ' + partnerName + ' owes ' + fmt(partnerShare);
+}
+
+/* ─── EXPENSE ENTRY SCREEN ─── */
+function renderExpenseEntry() {
+  renderMiniStatus();
+  renderDueSoonBar();
   renderCategoryPills();
+  updateIouPreview();
+
+  // Currency symbol
+  const cur = document.getElementById('currency-symbol');
+  if (cur) cur.textContent = state.settings.currency || '€';
+
+  // Amount
+  const disp = document.getElementById('amount-display');
+  if (disp) disp.textContent = amountStr === '0' ? '0' : amountStr;
+
+  // Sync chip
+  if (syncMgr) renderSyncChip(syncMgr.status);
 }
 
-function selectType(type) {
-  selectedType     = type;
-  state.lastType   = type;
-  vibrate(10);
-  renderTypeToggle();
-  renderCategoryPills();
-  updateBodyTypeClass();
-  updateMiniStatus();
+/* ─── NUMBER PAD ─── */
+function initNumpad() {
+  const numpad = document.getElementById('numpad');
+  if (!numpad) return;
+  numpad.addEventListener('click', (e) => {
+    const btn = e.target.closest('.num-btn');
+    if (!btn) return;
+    const val = btn.dataset.value;
+    handleNumpadInput(val);
+  });
 }
 
-function updateBodyTypeClass() {
-  document.body.className = `type-${selectedType}`;
-}
-
-// ─── Number pad ────────────────────────────────────────────────────────────────
-
-function handleNumpad(value) {
-  if (value === 'backspace') {
-    currentAmount = currentAmount.slice(0, -1);
-  } else if (value === '.') {
-    if (currentAmount === '') currentAmount = '0';
-    if (!currentAmount.includes('.')) currentAmount += '.';
+function handleNumpadInput(val) {
+  if (val === 'backspace') {
+    amountStr = amountStr.length > 1 ? amountStr.slice(0,-1) : '0';
+  } else if (val === '.') {
+    if (!amountStr.includes('.')) amountStr += '.';
   } else {
-    // Guard: max 2 decimal places
-    const parts = currentAmount.split('.');
-    if (parts[1] && parts[1].length >= 2) return;
-    // Guard: max reasonable amount
-    if (currentAmount.replace('.', '').length >= 7) return;
-    // Strip leading zeros
-    if (currentAmount === '0') {
-      currentAmount = value;
+    if (amountStr === '0') amountStr = val;
+    else if (amountStr.includes('.')) {
+      const parts = amountStr.split('.');
+      if (parts[1].length < 2) amountStr += val;
     } else {
-      currentAmount += value;
+      if (amountStr.length < 7) amountStr += val;
     }
   }
-  updateAmountDisplay();
+  const disp = document.getElementById('amount-display');
+  if (disp) disp.textContent = amountStr;
+  updateIouPreview();
+
+  // Auto-select fixed cost if amount matches
+  if (!isFixedSelected) {
+    const amt = parseFloat(amountStr);
+    const match = state.settings.fixedCosts.find(fc => fc.amount === amt);
+    if (match && !isFixedPaid(match.id)) {
+      isFixedSelected = true;
+      selectedFixedId = match.id;
+      selectedCategory = match.name;
+      renderCategoryPills();
+    }
+  }
 }
 
-function updateAmountDisplay() {
-  const el = document.getElementById('amount-display');
-  if (!el) return;
-  el.textContent = currentAmount || '0';
-  el.classList.toggle('has-value', currentAmount.length > 0);
+/* ─── SUBMIT EXPENSE ─── */
+function initSubmitBtn() {
+  const btn = document.getElementById('submit-btn');
+  if (!btn) return;
+  btn.addEventListener('click', submitExpense);
 }
-
-// ─── Expense submission ────────────────────────────────────────────────────────
 
 function submitExpense() {
-  const amount = parseFloat(currentAmount);
-
+  const amount = parseFloat(amountStr);
   if (!amount || amount <= 0) {
-    const area = document.getElementById('amount-area-el');
-    if (area) { area.classList.add('shake'); setTimeout(() => area.classList.remove('shake'), 350); }
-    vibrate([30, 20, 30]);
+    shakeAmount();
     return;
   }
 
-  const monthKey = currentMonthKey();
-  if (!state.months[monthKey]) {
-    showToast('No budget set for this month', 'error');
-    return;
-  }
-
+  const month = ensureMonth(currentMonthKey);
   const noteEl = document.getElementById('expense-note');
-  const note   = noteEl ? noteEl.value.trim() : '';
+  const note = noteEl ? noteEl.value.trim() : '';
+  const me = state.settings.currentUser;
 
   const tx = {
-    id:       Date.now(),
+    id: generateId(),
+    type: selectedType,
     amount,
     category: selectedCategory,
-    type:     selectedType,
     note,
-    date:     new Date().toISOString(),
-    userId:   state.settings.currentUser,
+    date: new Date().toISOString(),
+    paidBy: paidBy,
+    splitRatio: paidBy === 'both' ? splitRatio / 100 : null,
+    isFixed: isFixedSelected,
+    fixedCostId: isFixedSelected ? selectedFixedId : null,
+    userId: me,
+    deviceId: state.deviceId,
+    timestamp: Date.now(),
   };
 
-  applyTransaction(tx, monthKey, +1);
-  state.months[monthKey].transactions.push(tx);
-  state.lastTx = tx;
-  saveState();
+  // Add to transactions
+  month.transactions.push(tx);
 
-  // Feedback
-  vibrate([40, 25, 40]);
-  showSuccessFlash(amount, selectedCategory);
-
-  // Reset input
-  currentAmount = '';
-  if (noteEl) noteEl.value = '';
-  updateAmountDisplay();
-  updateMiniStatus();
-}
-
-function applyTransaction(tx, monthKey, sign) {
-  const m = state.months[monthKey];
-  if (!m) return;
-
-  if (tx.type === 'joint') {
-    m.joint.spent     += sign * tx.amount;
-    m.joint.remaining  = m.joint.total - m.joint.spent;
-    const cat = m.joint.categories.find(c => c.name === tx.category);
-    if (cat) { cat.spent += sign * tx.amount; cat.remaining = cat.total - cat.spent; }
-
-  } else if (tx.type === 'personal') {
-    const p = m.personal[tx.userId];
-    if (p) { p.spent += sign * tx.amount; p.remaining = p.total - p.spent; }
-
-  } else if (tx.type === 'unforeseen') {
-    m.unforeseen.spent += sign * tx.amount;
+  // Mark fixed cost as paid
+  if (isFixedSelected && selectedFixedId) {
+    month.fixedPaid[selectedFixedId] = { paid: true, paidAt: tx.date, paidBy: me };
+    syncMgr && syncMgr.send({
+      type: 'fixed_update', fixedCostId: selectedFixedId,
+      status: month.fixedPaid[selectedFixedId], monthKey: currentMonthKey
+    });
+    // Update due-soon bar
+    const dueSoonBtn = document.querySelector('.due-soon-btn[data-fcid="' + selectedFixedId + '"]');
+    if (dueSoonBtn) dueSoonBtn.classList.add('paid');
   }
-}
 
-function showSuccessFlash(amount, category) {
-  const el  = document.getElementById('success-feedback');
-  const cat = CATEGORIES.find(c => c.name === category) || { icon: '✓' };
-  if (!el) return;
-  el.textContent = `${cat.icon} ${state.settings.currency}${amount.toFixed(2)} — ${category}`;
-  el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 2200);
-}
-
-// ─── Smart category suggestion ─────────────────────────────────────────────────
-
-function suggestCategory(text) {
-  if (!text) return;
-  const lower = text.toLowerCase();
-  for (const [kw, cat] of Object.entries(SUGGESTIONS)) {
-    if (lower.includes(kw)) {
-      selectCategory(cat);
-      return;
+  // Create IOU if split unevenly
+  if (paidBy === 'both' && splitRatio !== 50) {
+    const myShare = amount * (splitRatio / 100);
+    const partnerShare = amount * ((100 - splitRatio) / 100);
+    const partnerName = getPartnerName();
+    const myName = getMyName();
+    // If I paid more than my share, partner owes me
+    const iou = {
+      id: generateId(),
+      txId: tx.id,
+      from: state.settings.users.find(u => u.id !== me).id,
+      to: me,
+      fromName: partnerName,
+      toName: myName,
+      amount: Math.abs(partnerShare - myShare) / 2,
+      description: note || selectedCategory,
+      date: tx.date,
+      settled: false,
+    };
+    if (splitRatio > 50) {
+      iou.amount = partnerShare; // partner owes their full share to me (I paid all)
+      iou.from = state.settings.users.find(u => u.id !== me).id;
+      iou.to = me;
+    } else {
+      iou.amount = myShare;
+      iou.from = me;
+      iou.to = state.settings.users.find(u => u.id !== me).id;
     }
-  }
-}
-
-// ─── Repeat last expense ───────────────────────────────────────────────────────
-
-function repeatLast() {
-  const last = state.lastTx;
-  if (!last) { showToast('No previous expense', 'error'); return; }
-
-  // Pre-fill UI
-  currentAmount    = String(last.amount);
-  selectedCategory = last.category;
-  selectedType     = last.type;
-  const noteEl     = document.getElementById('expense-note');
-  if (noteEl) noteEl.value = last.note || '';
-
-  updateAmountDisplay();
-  renderTypeToggle();
-  renderCategoryPills();
-  updateBodyTypeClass();
-  vibrate(10);
-}
-
-// ─── Mini status bar ───────────────────────────────────────────────────────────
-
-function updateMiniStatus() {
-  const bar = document.getElementById('mini-status');
-  if (!bar) return;
-
-  const m = getCurrentMonth();
-  if (!m) { bar.textContent = 'Tap to set up your budget'; return; }
-
-  const curr    = state.settings.currency;
-  const uid     = state.settings.currentUser;
-  const pers    = m.personal[uid];
-  const unf     = Math.max(0, m.unforeseen.allocated - m.unforeseen.spent);
-  const jointR  = Math.max(0, m.joint.remaining);
-  const persR   = pers ? Math.max(0, pers.remaining) : null;
-
-  bar.innerHTML = `
-    <span class="s-joint">Joint: ${curr}${fmt(jointR)}</span>
-    <span class="s-personal">Mine: ${pers ? curr + fmt(persR) : '—'}</span>
-    <span class="s-unforeseen">Extra: ${curr}${fmt(unf)}</span>
-  `;
-}
-
-// ─── Status Screen ────────────────────────────────────────────────────────────
-
-function renderStatusScreen() {
-  const container = document.getElementById('status-screen');
-  const m = getCurrentMonth();
-  const curr = state.settings.currency;
-
-  if (!m) {
-    container.innerHTML = `<div class="status-container"><p class="no-transactions" style="margin-top:40px">No budget set up yet.<br><br><button class="btn-primary" onclick="showSetupWizard()">Set Up This Month</button></p></div>`;
-    return;
+    month.ious.push(iou);
   }
 
-  const uid   = state.settings.currentUser;
-  const pers  = m.personal[uid];
-  const jPct  = m.joint.total > 0 ? (m.joint.spent / m.joint.total * 100) : 0;
-  const pPct  = pers?.total  > 0  ? (pers.spent  / pers.total  * 100) : 0;
-  const uPct  = m.unforeseen.allocated > 0 ? (m.unforeseen.spent / m.unforeseen.allocated * 100) : 0;
+  // Save last entry preferences
+  state.lastEntry = { type: selectedType, category: selectedCategory, paidBy, splitRatio };
 
-  const catRows = m.joint.categories
-    .filter(c => c.total > 0)
-    .map(c => {
-      const def  = CATEGORIES.find(d => d.name === c.name) || { icon: '📝' };
-      const pct  = c.total > 0 ? Math.min(100, c.spent / c.total * 100) : 0;
-      return `<div class="cat-row">
-        <span class="cat-name">${def.icon} ${c.name}</span>
-        <div class="mini-progress"><div class="mini-fill" style="width:${pct}%"></div></div>
-        <span class="cat-remaining">${curr}${fmt(Math.max(0, c.remaining))}</span>
-      </div>`;
-    }).join('');
+  saveState();
+  broadcastExpense(tx, currentMonthKey);
 
-  const recent5 = [...m.transactions].reverse().slice(0, 5);
+  // Success feedback
+  const feedback = document.getElementById('success-feedback');
+  if (feedback) {
+    feedback.textContent = '✓ ' + fmt(amount) + ' ' + selectedCategory;
+    feedback.classList.add('show');
+    setTimeout(() => feedback.classList.remove('show'), 1800);
+  }
 
-  container.innerHTML = `
-    <div class="status-container">
-      <h2 class="status-title">${currentMonthLabel()}</h2>
+  // Reset
+  amountStr = '0';
+  isFixedSelected = false;
+  selectedFixedId = null;
+  if (noteEl) noteEl.value = '';
+  paidBy = 'me';
+  document.querySelectorAll('.paid-by-btn').forEach(b => b.classList.toggle('active', b.dataset.paid === 'me'));
+  document.getElementById('split-ratio-row') && (document.getElementById('split-ratio-row').hidden = true);
 
-      <div class="budget-card">
-        <div class="budget-card-header">
-          <span class="budget-label">Joint Budget</span>
-          <span class="budget-remaining">${curr}${fmt(Math.max(0, m.joint.remaining))}</span>
-        </div>
-        <div class="progress-bar">
-          <div class="progress-fill joint ${jPct >= 90 ? 'danger' : ''}" style="width:${Math.min(100, jPct)}%"></div>
-        </div>
-        <div class="budget-details">
-          <span>Spent: ${curr}${fmt(m.joint.spent)}</span>
-          <span>Total: ${curr}${fmt(m.joint.total)}</span>
-        </div>
-        ${catRows ? `<div class="category-breakdown">${catRows}</div>` : ''}
-      </div>
-
-      <div class="budget-card">
-        <div class="budget-card-header">
-          <span class="budget-label">My Budget (${userName(uid)})</span>
-          <span class="budget-remaining">${pers ? curr + fmt(Math.max(0, pers.remaining)) : '—'}</span>
-        </div>
-        ${pers?.total > 0 ? `
-          <div class="progress-bar">
-            <div class="progress-fill personal ${pPct >= 90 ? 'danger' : ''}" style="width:${Math.min(100, pPct)}%"></div>
-          </div>
-          <div class="budget-details">
-            <span>Spent: ${curr}${fmt(pers.spent)}</span>
-            <span>Total: ${curr}${fmt(pers.total)}</span>
-          </div>
-        ` : '<p class="no-budget">No personal budget set</p>'}
-      </div>
-
-      <div class="budget-card">
-        <div class="budget-card-header">
-          <span class="budget-label">Unforeseen Fund</span>
-          <span class="budget-remaining">${curr}${fmt(Math.max(0, m.unforeseen.allocated - m.unforeseen.spent))}</span>
-        </div>
-        ${m.unforeseen.allocated > 0 ? `
-          <div class="progress-bar">
-            <div class="progress-fill unforeseen ${uPct >= 90 ? 'danger' : ''}" style="width:${Math.min(100, uPct)}%"></div>
-          </div>
-          <div class="budget-details">
-            <span>Spent: ${curr}${fmt(m.unforeseen.spent)}</span>
-            <span>Allocated: ${curr}${fmt(m.unforeseen.allocated)}</span>
-          </div>
-        ` : '<p class="no-budget">No unforeseen fund set</p>'}
-      </div>
-
-      <h3 class="section-title">Recent</h3>
-      <div class="budget-card" style="padding:8px 16px">
-        ${recent5.length ? recent5.map(txCard).join('') : '<p class="no-transactions">No expenses yet</p>'}
-      </div>
-    </div>
-  `;
+  renderExpenseEntry();
 }
 
-// ─── History Screen ───────────────────────────────────────────────────────────
+function shakeAmount() {
+  const el = document.getElementById('amount-display');
+  if (!el) return;
+  el.classList.add('shake');
+  setTimeout(() => el.classList.remove('shake'), 300);
+}
 
-function renderHistoryScreen() {
-  const container = document.getElementById('history-screen');
-  container.innerHTML = `
-    <div class="history-header">
-      <h2>History</h2>
-      <input type="search" class="search-input" id="history-search"
-        placeholder="Search expenses..." autocomplete="off"
-        aria-label="Search transactions">
-    </div>
-    <div id="history-list" style="padding:0 16px 24px"></div>
-  `;
-
-  const m = getCurrentMonth();
-  renderHistoryList(m ? [...m.transactions].reverse() : []);
-
-  document.getElementById('history-search').addEventListener('input', e => {
-    const q = e.target.value.toLowerCase();
-    const m = getCurrentMonth();
-    if (!m) return;
-    const filtered = q
-      ? [...m.transactions].reverse().filter(t =>
-          t.category.toLowerCase().includes(q) ||
-          (t.note || '').toLowerCase().includes(q) ||
-          t.amount.toFixed(2).includes(q))
-      : [...m.transactions].reverse();
-    renderHistoryList(filtered);
+/* ─── BUDGET TYPE TOGGLE ─── */
+function initTypeToggle() {
+  document.querySelectorAll('.type-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.type-toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedType = btn.dataset.type;
+      document.body.className = 'type-' + selectedType;
+      renderCategoryPills();
+    });
   });
 }
 
-function renderHistoryList(txs) {
+/* ─── REPEAT BUTTON ─── */
+function initRepeatBtn() {
+  const btn = document.getElementById('repeat-btn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const month = state.months[currentMonthKey];
+    if (!month || !month.transactions.length) return showToast('No recent expense', 'info');
+    const last = [...month.transactions].reverse()[0];
+    amountStr = String(last.amount);
+    selectedCategory = last.category;
+    selectedType = last.type;
+    isFixedSelected = last.isFixed || false;
+    selectedFixedId = last.fixedCostId || null;
+    document.querySelectorAll('.type-toggle-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.type === selectedType);
+    });
+    document.body.className = 'type-' + selectedType;
+    const noteEl = document.getElementById('expense-note');
+    if (noteEl) noteEl.value = last.note || '';
+    renderExpenseEntry();
+    showToast('Repeating: ' + last.category, 'info');
+  });
+}
+
+/* ─── STATUS SCREEN ─── */
+function renderStatusScreen() {
+  const screen = document.getElementById('status-screen');
+  if (!screen) return;
+  const month = state.months[currentMonthKey];
+  const t = getFixedTotals(currentMonthKey);
+  const fixedCosts = state.settings.fixedCosts;
+  const me = state.settings.currentUser;
+  const currency = state.settings.currency;
+  const monthLabel = new Date(currentMonthKey + '-15').toLocaleDateString('en-US', {month:'long', year:'numeric'});
+
+  if (!month || month.joint.total === 0) {
+    screen.innerHTML = '<div class="status-container"><p class="no-budget">No budget set up yet. <br>Go to Setup in the Profile tab.</p></div>';
+    return;
+  }
+
+  const jointPct   = t.jointTotal > 0 ? Math.min(100, Math.round((t.variableSpent + t.fixedSpent) / t.jointTotal * 100)) : 0;
+  const fixedPct   = t.jointTotal > 0 ? Math.round(t.fixedTotal / t.jointTotal * 100) : 0;
+  const varPct     = t.variableTotal > 0 ? Math.min(100, Math.round(t.variableSpent / t.variableTotal * 100)) : 0;
+  const danger     = varPct >= 90;
+
+  // Fixed costs status list
+  let fixedListHtml = '';
+  if (fixedCosts.length) {
+    fixedListHtml = '<div class="section-title">Fixed Costs</div><div class="fixed-costs-status-list">';
+    fixedCosts.forEach(fc => {
+      const paid = isFixedPaid(fc.id, currentMonthKey);
+      const today = dayOfMonth();
+      const isDue = !paid && fc.dueDay <= today;
+      fixedListHtml += '<div class="fixed-status-item' + (paid?' is-paid':'') + (isDue?' is-due':'') + '" data-fcid="' + fc.id + '">' +
+        '<div class="fixed-status-checkbox">' + (paid ? '✓' : '') + '</div>' +
+        '<div class="fixed-status-info"><div class="fixed-status-name">' + fc.icon + ' ' + fc.name + '</div>' +
+        '<div class="fixed-status-due">' + (paid ? 'Paid' : 'Due ' + fc.dueDay) + '</div></div>' +
+        '<div class="fixed-status-amount">' + fmt(fc.amount, currency) + '</div>' +
+        '</div>';
+    });
+    fixedListHtml += '</div>';
+  }
+
+  // IOUs
+  const ious = (month.ious || []).filter(i => !i.settled);
+  let iouHtml = '';
+  if (ious.length) {
+    iouHtml = '<div class="section-title">IOUs</div>';
+    ious.forEach(iou => {
+      iouHtml += '<div class="iou-card">' +
+        '<div class="iou-icon">💸</div>' +
+        '<div class="iou-desc">' + iou.fromName + ' owes ' + iou.toName + ' for ' + iou.description + '</div>' +
+        '<div><div class="iou-amount">' + fmt(iou.amount, currency) + '</div>' +
+        '<button class="iou-settle-btn" data-iou="' + iou.id + '">Settle</button></div>' +
+        '</div>';
+    });
+  }
+
+  // Personal budgets
+  const user1 = state.settings.users.find(u => u.id === 'user1') || {name:'Alex'};
+  const user2 = state.settings.users.find(u => u.id === 'user2') || {name:'Jordan'};
+  const p1Total = month.personal.user1 ? month.personal.user1.total : 0;
+  const p2Total = month.personal.user2 ? month.personal.user2.total : 0;
+  const p1Spent = t.personalSpent.user1 || 0;
+  const p2Spent = t.personalSpent.user2 || 0;
+  const p1Pct = p1Total > 0 ? Math.min(100, Math.round(p1Spent / p1Total * 100)) : 0;
+  const p2Pct = p2Total > 0 ? Math.min(100, Math.round(p2Spent / p2Total * 100)) : 0;
+
+  screen.innerHTML = '<div class="status-container">' +
+    '<div class="status-title">' + monthLabel + '</div>' +
+
+    // Joint card
+    '<div class="budget-card">' +
+    '<div class="budget-card-header"><span class="budget-label">Joint Budget</span><span class="budget-remaining">' + fmt(t.variableRemaining + (t.fixedTotal - t.fixedSpent), currency) + ' left</span></div>' +
+    '<div class="stacked-bar">' +
+    '<div class="stacked-seg fixed-seg" style="width:' + Math.min(100,fixedPct) + '%"></div>' +
+    '<div class="stacked-seg variable-seg" style="width:' + Math.min(100-fixedPct, Math.round(t.variableSpent/t.jointTotal*100||0)) + '%"></div>' +
+    '</div>' +
+    '<div class="budget-split-row">' +
+    '<div class="budget-split-item"><div class="budget-split-label">Fixed Reserved</div><div class="budget-split-value">' + fmt(t.fixedTotal, currency) + '</div></div>' +
+    '<div class="budget-split-item"><div class="budget-split-label">Variable Spent</div><div class="budget-split-value">' + fmt(t.variableSpent, currency) + '</div></div>' +
+    '<div class="budget-split-item"><div class="budget-split-label">Available</div><div class="budget-split-value">' + fmt(t.variableRemaining, currency) + '</div></div>' +
+    '</div></div>' +
+
+    fixedListHtml +
+    iouHtml +
+
+    // Personal cards (only if budgets set)
+    (p1Total > 0 ? '<div class="section-title">Personal</div><div class="budget-card">' +
+    '<div class="budget-card-header"><span class="budget-label">' + user1.name + '</span><span class="budget-remaining">' + fmt(p1Total - p1Spent, currency) + ' left</span></div>' +
+    '<div class="progress-bar"><div class="progress-fill personal' + (p1Pct>=90?' danger':'') + '" style="width:' + p1Pct + '%"></div></div>' +
+    '<div class="budget-details"><span>' + fmt(p1Spent, currency) + ' spent</span><span>' + fmt(p1Total, currency) + ' budget</span></div>' +
+    '</div>' : '') +
+
+    (p2Total > 0 ? '<div class="budget-card">' +
+    '<div class="budget-card-header"><span class="budget-label">' + user2.name + '</span><span class="budget-remaining">' + fmt(p2Total - p2Spent, currency) + ' left</span></div>' +
+    '<div class="progress-bar"><div class="progress-fill personal' + (p2Pct>=90?' danger':'') + '" style="width:' + p2Pct + '%"></div></div>' +
+    '<div class="budget-details"><span>' + fmt(p2Spent, currency) + ' spent</span><span>' + fmt(p2Total, currency) + ' budget</span></div>' +
+    '</div>' : '') +
+
+    // Unforeseen
+    (month.unforeseen.total > 0 ? '<div class="budget-card">' +
+    '<div class="budget-card-header"><span class="budget-label">Unforeseen</span><span class="budget-remaining">' + fmt(month.unforeseen.total - t.unforeseenSpent, currency) + ' left</span></div>' +
+    '<div class="progress-bar"><div class="progress-fill unforeseen" style="width:' + (Math.min(100,Math.round(t.unforeseenSpent/month.unforeseen.total*100||0))) + '%"></div></div>' +
+    '<div class="budget-details"><span>' + fmt(t.unforeseenSpent, currency) + ' spent</span><span>' + fmt(month.unforeseen.total, currency) + ' fund</span></div>' +
+    '</div>' : '') +
+
+    '</div>';
+
+  // Fixed status tap handler
+  screen.querySelectorAll('.fixed-status-item').forEach(item => {
+    item.addEventListener('click', () => toggleFixedPaid(item.dataset.fcid));
+  });
+
+  // IOU settle
+  screen.querySelectorAll('.iou-settle-btn').forEach(btn => {
+    btn.addEventListener('click', () => settleIou(btn.dataset.iou));
+  });
+}
+
+function toggleFixedPaid(fcId) {
+  const month = ensureMonth(currentMonthKey);
+  const current = month.fixedPaid[fcId] && month.fixedPaid[fcId].paid;
+  if (current) {
+    // Remove the transaction for this fixed cost
+    month.transactions = month.transactions.filter(t => t.fixedCostId !== fcId);
+    month.fixedPaid[fcId] = { paid: false };
+  } else {
+    const fc = state.settings.fixedCosts.find(f => f.id === fcId);
+    if (!fc) return;
+    const tx = {
+      id: generateId(), type: 'joint', amount: fc.amount, category: fc.name,
+      note: 'Fixed cost payment', date: new Date().toISOString(),
+      paidBy: 'me', isFixed: true, fixedCostId: fcId,
+      userId: state.settings.currentUser, deviceId: state.deviceId, timestamp: Date.now(),
+    };
+    month.transactions.push(tx);
+    month.fixedPaid[fcId] = { paid: true, paidAt: tx.date, paidBy: state.settings.currentUser };
+    broadcastExpense(tx, currentMonthKey);
+    syncMgr && syncMgr.send({ type: 'fixed_update', fixedCostId: fcId, status: month.fixedPaid[fcId], monthKey: currentMonthKey });
+  }
+  saveState();
+  renderStatusScreen();
+}
+
+function settleIou(iouId) {
+  const month = state.months[currentMonthKey];
+  if (!month) return;
+  const iou = month.ious.find(i => i.id === iouId);
+  if (iou) { iou.settled = true; saveState(); renderStatusScreen(); showToast('IOU settled!', 'success'); }
+}
+
+/* ─── HISTORY SCREEN ─── */
+function renderHistoryScreen() {
+  const screen = document.getElementById('history-screen');
+  if (!screen) return;
+
+  const allMonths = Object.keys(state.months).sort().reverse();
+  const month = state.months[currentHistoryMonth];
+  const txs = month ? [...month.transactions].reverse() : [];
+
+  screen.innerHTML =
+    '<div class="history-header">' +
+    '<h2>History</h2>' +
+    '<input type="search" class="search-input" id="history-search" placeholder="Search…" autocomplete="off">' +
+    '</div>' +
+    '<div id="history-list"></div>';
+
+  renderHistoryList(txs, '');
+
+  const searchInput = document.getElementById('history-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => renderHistoryList(txs, searchInput.value));
+  }
+}
+
+function renderHistoryList(txs, query) {
   const list = document.getElementById('history-list');
   if (!list) return;
+  const q = (query || '').toLowerCase().trim();
+  const filtered = q ? txs.filter(t =>
+    (t.category||'').toLowerCase().includes(q) ||
+    (t.note||'').toLowerCase().includes(q) ||
+    String(t.amount).includes(q)
+  ) : txs;
 
-  if (!txs.length) {
-    list.innerHTML = '<p class="no-transactions">No expenses found</p>';
+  if (!filtered.length) {
+    list.innerHTML = '<div class="no-transactions">' + (q ? 'No matches' : 'No expenses yet') + '</div>';
     return;
   }
 
   // Group by date
   const groups = {};
-  txs.forEach(t => {
-    const d = new Date(t.date).toLocaleDateString('default', { weekday: 'short', month: 'short', day: 'numeric' });
-    if (!groups[d]) groups[d] = [];
-    groups[d].push(t);
+  filtered.forEach(tx => {
+    const d = new Date(tx.date);
+    const key = d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(tx);
   });
 
-  list.innerHTML = Object.entries(groups).map(([date, items]) => `
-    <div class="history-group">
-      <div class="history-date">${date}</div>
-      ${items.map(t => `
-        <div class="transaction-item" data-id="${t.id}" role="button" tabindex="0">
-          <div class="tx-icon ${t.type}">${CATEGORIES.find(c => c.name === t.category)?.icon || '📝'}</div>
-          <div class="tx-details">
-            <span class="tx-category">${t.category}</span>
-            ${t.note ? `<span class="tx-note">${escHtml(t.note)}</span>` : ''}
-          </div>
-          <div class="tx-right">
-            <span class="tx-amount">${state.settings.currency}${t.amount.toFixed(2)}</span>
-            <span class="tx-badge ${t.type}">${t.type}</span>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `).join('');
+  const currency = state.settings.currency;
+  let html = '';
+  Object.keys(groups).forEach(day => {
+    html += '<div class="history-group"><div class="history-date">' + day + '</div>';
+    groups[day].forEach(tx => {
+      const icon = tx.isFixed ? '🔒' : (VAR_CATEGORIES.find(c=>c.name===tx.category)||{icon:'📦'}).icon;
+      const splitTag = tx.paidBy === 'both' ? '<span class="tx-split-tag">Split</span>' : (tx.paidBy === 'partner' ? '<span class="tx-split-tag">Partner paid</span>' : '');
+      html += '<div class="transaction-item" data-txid="' + tx.id + '">' +
+        '<div class="tx-icon ' + tx.type + (tx.isFixed ? ' fixed' : '') + '">' + icon + '</div>' +
+        '<div class="tx-details">' +
+        '<div class="tx-category">' + tx.category + '</div>' +
+        (tx.note ? '<div class="tx-note">' + escapeHtml(tx.note) + '</div>' : '') +
+        splitTag +
+        '</div>' +
+        '<div class="tx-right">' +
+        '<div class="tx-amount">' + fmt(tx.amount, currency) + '</div>' +
+        '<div class="tx-badge ' + tx.type + (tx.isFixed ? ' fixed' : '') + '">' + (tx.isFixed ? 'fixed' : tx.type) + '</div>' +
+        '</div></div>';
+    });
+    html += '</div>';
+  });
+  list.innerHTML = html;
 
-  list.querySelectorAll('.transaction-item').forEach(el => {
-    el.addEventListener('click', () => showTxDetail(Number(el.dataset.id)));
+  list.querySelectorAll('.transaction-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const txId = item.dataset.txid;
+      const tx = txs.find(t => t.id === txId);
+      if (tx) showTransactionDetail(tx);
+    });
   });
 }
 
-// ─── Transaction detail modal ─────────────────────────────────────────────────
+function showTransactionDetail(tx) {
+  const currency = state.settings.currency;
+  const d = new Date(tx.date);
+  const dateStr = d.toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+  const timeStr = d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
 
-function showTxDetail(id) {
-  const m = getCurrentMonth();
-  if (!m) return;
-  const tx = m.transactions.find(t => t.id === id);
-  if (!tx) return;
+  showModal('<div class="detail-modal">' +
+    '<div class="modal-handle"></div>' +
+    '<h3>' + fmt(tx.amount, currency) + ' · ' + tx.category + '</h3>' +
+    (tx.note ? '<div class="detail-row"><span class="detail-label">Note</span><span>' + escapeHtml(tx.note) + '</span></div>' : '') +
+    '<div class="detail-row"><span class="detail-label">Type</span><span>' + (tx.isFixed ? 'Fixed Cost' : tx.type) + '</span></div>' +
+    '<div class="detail-row"><span class="detail-label">Paid by</span><span>' + (tx.paidBy === 'both' ? 'Split ' + Math.round((tx.splitRatio||0.5)*100) + '/' + (100-Math.round((tx.splitRatio||0.5)*100)) : tx.paidBy) + '</span></div>' +
+    '<div class="detail-row"><span class="detail-label">Date</span><span>' + dateStr + '</span></div>' +
+    '<div class="detail-row"><span class="detail-label">Time</span><span>' + timeStr + '</span></div>' +
+    '<button class="btn-danger-outline" id="modal-delete-tx">Delete</button>' +
+    '</div>');
 
-  const curr = state.settings.currency;
-  const icon = CATEGORIES.find(c => c.name === tx.category)?.icon || '📝';
-  const date = new Date(tx.date).toLocaleString('default', { dateStyle: 'medium', timeStyle: 'short' });
-
-  showModal(`
-    <div class="modal-handle"></div>
-    <div class="detail-modal">
-      <h3>${icon} ${tx.category}</h3>
-      <div class="detail-row">
-        <span class="detail-label">Amount</span>
-        <strong>${curr}${tx.amount.toFixed(2)}</strong>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">Type</span>
-        <span class="tx-badge ${tx.type}">${tx.type}</span>
-      </div>
-      ${tx.note ? `<div class="detail-row"><span class="detail-label">Note</span><span>${escHtml(tx.note)}</span></div>` : ''}
-      <div class="detail-row">
-        <span class="detail-label">Date</span>
-        <span>${date}</span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">By</span>
-        <span>${userName(tx.userId)}</span>
-      </div>
-      <button class="btn-danger" onclick="deleteTx(${tx.id})">Delete Expense</button>
-    </div>
-  `);
+  document.getElementById('modal-delete-tx').addEventListener('click', () => {
+    const month = state.months[currentMonthKey];
+    if (month) {
+      month.transactions = month.transactions.filter(t => t.id !== tx.id);
+      if (tx.isFixed && tx.fixedCostId && month.fixedPaid[tx.fixedCostId]) {
+        month.fixedPaid[tx.fixedCostId] = { paid: false };
+      }
+      saveState();
+    }
+    closeModal();
+    renderHistoryScreen();
+  });
 }
 
-function deleteTx(id) {
-  const monthKey = currentMonthKey();
-  const m = state.months[monthKey];
-  if (!m) return;
-
-  const tx = m.transactions.find(t => t.id === id);
-  if (!tx) return;
-
-  applyTransaction(tx, monthKey, -1);
-  m.transactions = m.transactions.filter(t => t.id !== id);
-  if (state.lastTx?.id === id) state.lastTx = null;
-  saveState();
-
-  closeModal();
-  renderHistoryScreen();
-  updateMiniStatus();
-  showToast('Expense deleted', 'success');
-}
-
-// ─── Profile Screen ───────────────────────────────────────────────────────────
-
+/* ─── PROFILE SCREEN ─── */
 function renderProfileScreen() {
-  const container = document.getElementById('profile-screen');
-  const curr = state.settings.currency;
+  const screen = document.getElementById('profile-screen');
+  if (!screen) return;
+  const s = state.settings;
+  const currency = s.currency || '€';
+  const user1 = s.users.find(u => u.id === 'user1') || {id:'user1', name:'Alex'};
+  const user2 = s.users.find(u => u.id === 'user2') || {id:'user2', name:'Jordan'};
+  const syncConnected = syncMgr && (syncMgr.status === 'connected');
+  const pairedCode = syncConnected && syncMgr.getPairingCode();
+  const pairingCode = syncMgr && syncMgr.peerId ? syncMgr.getPairingCode() : '------';
 
-  const archiveRows = Object.keys(state.months).sort().reverse().map(key => {
-    const m = state.months[key];
-    return `<div class="archive-row">
-      <span>${monthLabel(key)}</span>
-      <span class="archive-amount">${curr}${fmt(m.joint.spent)} / ${curr}${fmt(m.joint.total)}</span>
-    </div>`;
-  }).join('') || '<p class="no-transactions" style="padding:12px 0">No previous months</p>';
+  screen.innerHTML = '<div class="profile-container">' +
+    '<h2>Profile</h2>' +
 
-  container.innerHTML = `
-    <div class="profile-container">
-      <h2>Profile &amp; Settings</h2>
+    // Who am I
+    '<div class="profile-section">' +
+    '<h3>I am</h3>' +
+    '<div class="user-selector">' +
+    '<button class="user-btn' + (s.currentUser==='user1'?' active':'') + '" data-user="user1">' + user1.name + '</button>' +
+    '<button class="user-btn' + (s.currentUser==='user2'?' active':'') + '" data-user="user2">' + user2.name + '</button>' +
+    '</div></div>' +
 
-      <div class="profile-section">
-        <h3>Who Am I?</h3>
-        <div class="user-selector">
-          ${state.settings.users.map(u => `
-            <button class="user-btn ${u.id === state.settings.currentUser ? 'active' : ''}"
-              onclick="switchUser('${u.id}')">${u.name}</button>
-          `).join('')}
-        </div>
-      </div>
+    // Names
+    '<div class="profile-section">' +
+    '<h3>Partner Names</h3>' +
+    '<div class="partner-row">' +
+    '<input class="partner-name-input" id="name-user1" value="' + escapeHtml(user1.name) + '" placeholder="Your name" maxlength="20">' +
+    '</div><div class="partner-row">' +
+    '<input class="partner-name-input" id="name-user2" value="' + escapeHtml(user2.name) + '" placeholder="Partner name" maxlength="20">' +
+    '</div></div>' +
 
-      <div class="profile-section">
-        <h3>Partner Names</h3>
-        ${state.settings.users.map(u => `
-          <div class="partner-row">
-            <input type="text" class="partner-name-input" value="${escHtml(u.name)}"
-              data-uid="${u.id}" placeholder="Name..."
-              onblur="updateName(this)" autocomplete="off">
-          </div>
-        `).join('')}
-      </div>
+    // Currency
+    '<div class="profile-section">' +
+    '<h3>Currency</h3>' +
+    '<select class="currency-select" id="currency-select">' +
+    ['€','$','£','¥','CHF','kr','₹','R$'].map(c => '<option value="' + c + '"' + (currency===c?' selected':'') + '>' + c + '</option>').join('') +
+    '</select></div>' +
 
-      <div class="profile-section">
-        <h3>Currency</h3>
-        <select class="currency-select" onchange="updateCurrency(this.value)">
-          ${['€','$','£','¥','CHF','kr','₹','R$','zł'].map(c =>
-            `<option value="${c}" ${c === curr ? 'selected' : ''}>${c}</option>`
-          ).join('')}
-        </select>
-      </div>
+    // Partner sync
+    '<div class="profile-section">' +
+    '<h3>Partner Sync</h3>' +
+    '<div class="pair-status-row">' +
+    '<div class="pair-status-dot ' + (syncConnected ? 'connected' : 'offline') + '"></div>' +
+    '<span style="font-size:14px;font-weight:600">' + (syncConnected ? '● Connected' : '○ Not connected') + '</span>' +
+    '</div>' +
+    '<div class="pair-code-display" id="my-code-display">' +
+    '<div style="font-size:12px;opacity:.6;margin-bottom:4px">YOUR CODE</div>' +
+    '<div class="pair-code-digits" id="my-pairing-code">------</div>' +
+    '<div class="pair-code-hint">Share this with your partner</div>' +
+    '</div>' +
+    '<button class="btn-secondary" id="generate-code-btn" style="margin-bottom:10px">Generate My Code</button>' +
+    '<input class="pair-code-input" id="partner-code-input" placeholder="Partner\'s code" maxlength="6" inputmode="text" autocomplete="off">' +
+    '<button class="btn-primary" id="connect-partner-btn" style="margin-top:8px;display:block;width:100%">Connect to Partner</button>' +
+    (syncConnected ? '<button class="btn-danger-outline" id="disconnect-btn" style="margin-top:8px">Disconnect</button>' : '') +
+    '</div>' +
 
-      <div class="profile-section">
-        <h3>Month</h3>
-        <div class="profile-actions">
-          <button class="btn-secondary" onclick="showSetupWizard()">Set Up New Month</button>
-          <button class="btn-secondary" onclick="exportData()">Export Data (JSON)</button>
-          <button class="btn-danger-outline" onclick="confirmClear()">Clear All Data</button>
-        </div>
-      </div>
+    // Setup / Danger zone
+    '<div class="profile-section">' +
+    '<h3>Budget</h3>' +
+    '<div class="profile-actions">' +
+    '<button class="btn-secondary" id="edit-budget-btn">Edit Budget Setup</button>' +
+    '<button class="btn-danger" id="reset-month-btn">Reset This Month</button>' +
+    '</div></div>' +
 
-      <div class="profile-section">
-        <h3>Archives</h3>
-        ${archiveRows}
-      </div>
-    </div>
-  `;
-}
+    '</div>';
 
-function switchUser(uid) {
-  state.settings.currentUser = uid;
-  saveState();
-  renderProfileScreen();
-  updateMiniStatus();
-}
+  // Bind events
+  screen.querySelectorAll('.user-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      s.currentUser = btn.dataset.user;
+      saveState();
+      renderProfileScreen();
+      renderMiniStatus();
+      showToast('Switched to ' + btn.textContent, 'info');
+    });
+  });
 
-function updateName(input) {
-  const uid  = input.dataset.uid;
-  const user = state.settings.users.find(u => u.id === uid);
-  if (user && input.value.trim()) {
-    user.name = input.value.trim();
+  ['user1','user2'].forEach(uid => {
+    const inp = document.getElementById('name-' + uid);
+    if (inp) inp.addEventListener('change', () => {
+      const u = s.users.find(x => x.id === uid);
+      if (u) { u.name = inp.value.trim() || u.name; saveState(); }
+    });
+  });
+
+  const currSel = document.getElementById('currency-select');
+  if (currSel) currSel.addEventListener('change', () => { s.currency = currSel.value; saveState(); renderExpenseEntry(); });
+
+  // Pairing
+  document.getElementById('generate-code-btn').addEventListener('click', async () => {
+    const display = document.getElementById('my-pairing-code');
+    if (display) display.textContent = '...';
+    try {
+      await syncMgr.initPeer();
+      const code = syncMgr.getPairingCode();
+      if (display) display.textContent = code || '------';
+      showToast('Your code is ready!', 'success');
+    } catch(e) {
+      if (display) display.textContent = 'Error';
+      showToast('Could not generate code. Check internet.', 'error');
+    }
+  });
+
+  document.getElementById('connect-partner-btn').addEventListener('click', async () => {
+    const input = document.getElementById('partner-code-input');
+    const code = (input ? input.value.trim().toLowerCase() : '');
+    if (code.length < 4) return showToast('Enter partner\'s code', 'error');
+    showToast('Connecting…', 'info');
+    try {
+      await syncMgr.initPeer();
+      // The partner's peer ID is their device ID prefix - but they share just last 6 chars.
+      // We'll try connecting directly to that code as the peer ID prefix.
+      // This works when their peer ID ends with those 6 chars.
+      // For simplicity, we connect to their full peer ID stored when they shared.
+      await syncMgr.connect(code);
+      state.pairedPeerId = code;
+      saveState();
+      showToast('Connected to partner!', 'success');
+      renderProfileScreen();
+    } catch(e) {
+      showToast('Connection failed. Try again.', 'error');
+    }
+  });
+
+  const discBtn = document.getElementById('disconnect-btn');
+  if (discBtn) discBtn.addEventListener('click', () => {
+    syncMgr.disconnect();
+    state.pairedPeerId = null;
     saveState();
-  }
+    renderProfileScreen();
+    showToast('Disconnected', 'info');
+  });
+
+  document.getElementById('edit-budget-btn').addEventListener('click', () => {
+    wizardStep = 0;
+    showScreen('setup-wizard');
+    renderWizardStep();
+  });
+
+  document.getElementById('reset-month-btn').addEventListener('click', () => {
+    if (!confirm('Reset all expenses for this month? This cannot be undone.')) return;
+    const month = ensureMonth(currentMonthKey);
+    month.transactions = [];
+    month.fixedPaid = {};
+    month.ious = [];
+    saveState();
+    showToast('Month reset', 'success');
+    showScreen('expense-entry');
+  });
 }
 
-function updateCurrency(curr) {
-  state.settings.currency = curr;
-  document.getElementById('currency-symbol').textContent = curr;
-  saveState();
-  updateMiniStatus();
-}
+/* ─── SETUP WIZARD ─── */
+const WIZARD_STEPS = 6;
 
-function exportData() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `couplebudget_${currentMonthKey()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function confirmClear() {
-  showModal(`
-    <div class="modal-handle"></div>
-    <div class="detail-modal">
-      <h3>⚠️ Clear All Data?</h3>
-      <p style="color:var(--lilac-ash);margin-bottom:20px;line-height:1.5">
-        This will permanently delete all your budget data and cannot be undone.
-      </p>
-      <button class="btn-danger" onclick="clearAllData()">Yes, delete everything</button>
-      <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="closeModal()">Cancel</button>
-    </div>
-  `);
-}
-
-function clearAllData() {
-  localStorage.removeItem(STORAGE_KEY);
-  location.reload();
-}
-
-// ─── Setup Wizard ─────────────────────────────────────────────────────────────
-
-let wiz = {
-  step:          1,
-  jointTotal:    0,
-  useCategories: false,
-  categories:    {},
-  personal:      {},
-  unforeseen:    0,
-};
-
-function showSetupWizard() {
-  // Reset wizard data
-  wiz = { step: 1, jointTotal: 0, useCategories: false, categories: {}, personal: {}, unforeseen: 0 };
-  // Hide bottom nav during setup
+function startWizard() {
+  wizardStep = 0;
   document.getElementById('bottom-nav').style.display = 'none';
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('setup-wizard').classList.add('active');
   renderWizardStep();
 }
 
-function renderWizardStep() {
-  // Progress dots
-  document.getElementById('setup-progress').innerHTML =
-    [1,2,3,4,5].map(i =>
-      `<div class="progress-dot ${i <= wiz.step ? 'active' : ''}"></div>`
-    ).join('');
-
-  const hasPrev = Object.keys(state.months).length > 0;
-  const curr    = state.settings.currency;
-
-  const stepHTML = {
-    1: () => `
-      <h2>Monthly Budget</h2>
-      <p class="setup-subtitle">${currentMonthLabel()}</p>
-      ${hasPrev ? `<button class="btn-secondary" onclick="usePrevMonth()">↻ Use same as last month</button>` : ''}
-      <div class="setup-field">
-        <label>Joint Budget Total</label>
-        <div class="setup-amount-input">
-          <span class="currency">${curr}</span>
-          <input type="number" id="s-joint" placeholder="0.00" inputmode="decimal"
-            value="${wiz.jointTotal || ''}" autofocus min="0">
-        </div>
-      </div>
-      <button class="btn-primary" onclick="wizNext()">Continue →</button>
-    `,
-    2: () => `
-      <h2>Category Allocation</h2>
-      <p class="setup-subtitle">Optionally divide your joint budget by category</p>
-      <div class="setup-toggle-row">
-        <span>Allocate by category?</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="s-use-cat" ${wiz.useCategories ? 'checked' : ''}
-            onchange="toggleCatAlloc(this.checked)">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div id="cat-alloc-wrap" class="category-alloc-wrap" style="display:${wiz.useCategories ? 'flex' : 'none'};flex-direction:column;gap:4px">
-        ${CATEGORIES.map(cat => `
-          <div class="category-alloc-row">
-            <span>${cat.icon} ${cat.name}</span>
-            <div class="setup-amount-input sm">
-              <span class="currency">${curr}</span>
-              <input type="number" class="cat-budget" data-cat="${cat.name}"
-                placeholder="0" inputmode="decimal" min="0"
-                value="${wiz.categories[cat.name] || ''}">
-            </div>
-          </div>
-        `).join('')}
-      </div>
-      <div class="setup-nav">
-        <button class="btn-ghost" onclick="wizBack()">← Back</button>
-        <button class="btn-primary" onclick="wizNext()">Continue →</button>
-      </div>
-    `,
-    3: () => `
-      <h2>Personal Budgets</h2>
-      <p class="setup-subtitle">Each partner's individual spending</p>
-      ${state.settings.users.map(u => `
-        <div class="setup-field">
-          <label>${escHtml(u.name)}'s Budget</label>
-          <div class="setup-amount-input">
-            <span class="currency">${curr}</span>
-            <input type="number" class="pers-budget" data-uid="${u.id}"
-              placeholder="0.00" inputmode="decimal" min="0"
-              value="${wiz.personal[u.id] || ''}">
-          </div>
-        </div>
-      `).join('')}
-      <div class="setup-nav">
-        <button class="btn-ghost" onclick="wizBack()">← Back</button>
-        <button class="btn-primary" onclick="wizNext()">Continue →</button>
-      </div>
-    `,
-    4: () => {
-      const suggested = Math.round(wiz.jointTotal * 0.1);
-      return `
-        <h2>Unforeseen Fund</h2>
-        <p class="setup-subtitle">Buffer for unexpected expenses outside your budget</p>
-        <div class="setup-field">
-          <label>Unforeseen Allocation</label>
-          <div class="setup-amount-input">
-            <span class="currency">${curr}</span>
-            <input type="number" id="s-unf" placeholder="0.00" inputmode="decimal" min="0"
-              value="${wiz.unforeseen || suggested}">
-          </div>
-          <span class="setup-hint">Suggested 10% of joint = ${curr}${fmt(suggested)}</span>
-        </div>
-        <div class="setup-nav">
-          <button class="btn-ghost" onclick="wizBack()">← Back</button>
-          <button class="btn-primary" onclick="wizNext()">Continue →</button>
-        </div>
-      `;
-    },
-    5: () => `
-      <h2>Confirm Budget</h2>
-      <p class="setup-subtitle">Ready to start tracking ${currentMonthLabel()}!</p>
-      <div class="setup-summary">
-        <div class="summary-row joint">
-          <span>Joint Budget</span>
-          <strong>${curr}${fmt(wiz.jointTotal)}</strong>
-        </div>
-        ${wiz.useCategories
-          ? CATEGORIES.filter(c => wiz.categories[c.name] > 0).map(c => `
-              <div class="summary-row indent">
-                <span>${c.icon} ${c.name}</span>
-                <span>${curr}${fmt(wiz.categories[c.name] || 0)}</span>
-              </div>`).join('')
-          : ''}
-        ${state.settings.users.map(u => `
-          <div class="summary-row personal">
-            <span>${escHtml(u.name)}'s Budget</span>
-            <strong>${curr}${fmt(wiz.personal[u.id] || 0)}</strong>
-          </div>`).join('')}
-        <div class="summary-row unforeseen">
-          <span>Unforeseen Fund</span>
-          <strong>${curr}${fmt(wiz.unforeseen)}</strong>
-        </div>
-      </div>
-      <div class="setup-nav">
-        <button class="btn-ghost" onclick="wizBack()">← Edit</button>
-        <button class="btn-primary" onclick="saveSetup()">Start Tracking →</button>
-      </div>
-    `,
-  };
-
-  document.getElementById('setup-step-content').innerHTML = stepHTML[wiz.step]?.() || '';
-
-  // Auto-focus first input
-  const firstInput = document.querySelector('#setup-step-content input');
-  if (firstInput) setTimeout(() => firstInput.focus(), 50);
+function renderWizardProgress() {
+  const el = document.getElementById('setup-progress');
+  if (!el) return;
+  el.innerHTML = Array.from({length:WIZARD_STEPS}, (_,i) =>
+    '<div class="progress-dot' + (i === wizardStep ? ' active' : '') + '"></div>'
+  ).join('');
 }
 
-function wizNext() {
-  // Collect current step data
-  if (wiz.step === 1) {
-    const v = parseFloat(document.getElementById('s-joint')?.value || '0');
-    if (!v || v <= 0) { showToast('Please enter a valid amount', 'error'); return; }
-    wiz.jointTotal = v;
+function renderWizardStep() {
+  renderWizardProgress();
+  const content = document.getElementById('setup-step-content');
+  if (!content) return;
 
-  } else if (wiz.step === 2) {
-    wiz.useCategories = document.getElementById('s-use-cat')?.checked || false;
-    if (wiz.useCategories) {
-      document.querySelectorAll('.cat-budget').forEach(inp => {
-        const v = parseFloat(inp.value || '0');
-        if (v > 0) wiz.categories[inp.dataset.cat] = v;
+  const month = ensureMonth(currentMonthKey);
+  const s = state.settings;
+  const currency = s.currency || '€';
+
+  switch(wizardStep) {
+    // ── Step 0: Joint Budget Total ──
+    case 0:
+      content.innerHTML =
+        '<h2>What\'s your joint budget?</h2>' +
+        '<p class="setup-subtitle">Monthly budget shared between both partners</p>' +
+        '<div class="setup-field"><label>Monthly Joint Budget</label>' +
+        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
+        '<input type="number" id="joint-total" value="' + (month.joint.total||'') + '" placeholder="0" inputmode="decimal" min="0" step="1"></div></div>' +
+        '<div class="setup-nav"><button class="btn-primary" id="wizard-next">Next →</button></div>';
+      document.getElementById('wizard-next').addEventListener('click', () => {
+        const val = parseFloat(document.getElementById('joint-total').value) || 0;
+        month.joint.total = val;
+        saveState();
+        nextWizardStep();
       });
+      break;
+
+    // ── Step 1: Fixed Costs ──
+    case 1: {
+      const fixedCosts = s.fixedCosts;
+      const fixedTotal = fixedCosts.reduce((s,fc) => s + fc.amount, 0);
+      const varBudget = Math.max(0, month.joint.total - fixedTotal);
+
+      let fcListHtml = fixedCosts.map((fc, i) =>
+        '<div class="fixed-cost-item" data-idx="' + i + '">' +
+        '<div class="fixed-cost-icon">' + fc.icon + '</div>' +
+        '<div class="fixed-cost-info"><div class="fixed-cost-name">' + fc.name + '</div>' +
+        '<div class="fixed-cost-meta">Due day ' + fc.dueDay + ' · ' + fc.paidBy + '</div></div>' +
+        '<div class="fixed-cost-amount">' + fmt(fc.amount, currency) + '</div>' +
+        '<button class="fixed-cost-remove" data-idx="' + i + '">×</button>' +
+        '</div>'
+      ).join('');
+
+      content.innerHTML =
+        '<h2>Fixed Costs</h2>' +
+        '<p class="setup-subtitle">Recurring costs auto-reserved from your joint budget</p>' +
+        '<div class="fixed-costs-list" id="fc-list">' + (fcListHtml || '<p style="color:var(--lilac-ash);font-size:14px;padding:8px 0">No fixed costs added yet</p>') + '</div>' +
+        '<button class="add-fixed-cost-btn" id="add-fc-btn">+ Add Fixed Cost</button>' +
+        '<div class="fixed-summary-bar" style="margin-top:10px">' +
+        '<div class="s-row"><span>Fixed Costs Total</span><span><strong>' + fmt(fixedTotal, currency) + '</strong></span></div>' +
+        '<div class="s-row highlight"><span>Variable Budget</span><span>' + fmt(varBudget, currency) + '</span></div>' +
+        '</div>' +
+        '<div class="setup-nav">' +
+        '<button class="btn-ghost" id="wizard-back">← Back</button>' +
+        '<button class="btn-primary" id="wizard-next">Next →</button>' +
+        '</div>';
+
+      document.getElementById('add-fc-btn').addEventListener('click', () => showAddFixedCostModal());
+      document.querySelectorAll('.fixed-cost-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+          s.fixedCosts.splice(parseInt(btn.dataset.idx), 1);
+          saveState();
+          renderWizardStep();
+        });
+      });
+      document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
+      document.getElementById('wizard-next').addEventListener('click', nextWizardStep);
+      break;
     }
 
-  } else if (wiz.step === 3) {
-    document.querySelectorAll('.pers-budget').forEach(inp => {
-      const v = parseFloat(inp.value || '0');
-      wiz.personal[inp.dataset.uid] = v > 0 ? v : 0;
-    });
+    // ── Step 2: Variable Category Allocation (optional) ──
+    case 2: {
+      const cats = VAR_CATEGORIES;
+      const allocated = month.joint.allocated || {};
+      content.innerHTML =
+        '<h2>Category Limits</h2>' +
+        '<p class="setup-subtitle">Optional spending limits per category (variable budget only)</p>' +
+        '<div class="category-alloc-wrap">' +
+        cats.map(cat =>
+          '<div class="category-alloc-row">' +
+          '<span>' + cat.icon + ' ' + cat.name + '</span>' +
+          '<div class="setup-amount-input sm"><span class="currency">' + currency + '</span>' +
+          '<input type="number" class="cat-alloc-input" data-cat="' + cat.name + '" value="' + (allocated[cat.name]||'') + '" placeholder="No limit" inputmode="decimal" min="0"></div>' +
+          '</div>'
+        ).join('') +
+        '</div>' +
+        '<div class="setup-nav">' +
+        '<button class="btn-ghost" id="wizard-back">← Back</button>' +
+        '<button class="btn-primary" id="wizard-next">Next →</button>' +
+        '</div>';
+      document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
+      document.getElementById('wizard-next').addEventListener('click', () => {
+        const alloc = {};
+        document.querySelectorAll('.cat-alloc-input').forEach(inp => {
+          const v = parseFloat(inp.value);
+          if (v > 0) alloc[inp.dataset.cat] = v;
+        });
+        month.joint.allocated = alloc;
+        saveState();
+        nextWizardStep();
+      });
+      break;
+    }
 
-  } else if (wiz.step === 4) {
-    wiz.unforeseen = parseFloat(document.getElementById('s-unf')?.value || '0');
+    // ── Step 3: Personal Budgets ──
+    case 3: {
+      const user1 = s.users.find(u=>u.id==='user1') || {id:'user1',name:'Alex'};
+      const user2 = s.users.find(u=>u.id==='user2') || {id:'user2',name:'Jordan'};
+      content.innerHTML =
+        '<h2>Personal Budgets</h2>' +
+        '<p class="setup-subtitle">Each partner\'s individual spending budget</p>' +
+        '<div class="setup-field"><label>' + user1.name + '\'s Budget</label>' +
+        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
+        '<input type="number" id="personal-user1" value="' + (month.personal.user1.total||'') + '" placeholder="0" inputmode="decimal" min="0"></div></div>' +
+        '<div class="setup-field"><label>' + user2.name + '\'s Budget</label>' +
+        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
+        '<input type="number" id="personal-user2" value="' + (month.personal.user2.total||'') + '" placeholder="0" inputmode="decimal" min="0"></div></div>' +
+        '<div class="setup-nav">' +
+        '<button class="btn-ghost" id="wizard-back">← Back</button>' +
+        '<button class="btn-primary" id="wizard-next">Next →</button>' +
+        '</div>';
+      document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
+      document.getElementById('wizard-next').addEventListener('click', () => {
+        month.personal.user1.total = parseFloat(document.getElementById('personal-user1').value) || 0;
+        month.personal.user2.total = parseFloat(document.getElementById('personal-user2').value) || 0;
+        saveState();
+        nextWizardStep();
+      });
+      break;
+    }
+
+    // ── Step 4: Unforeseen Fund ──
+    case 4: {
+      content.innerHTML =
+        '<h2>Unforeseen Fund</h2>' +
+        '<p class="setup-subtitle">Emergency & unexpected expenses buffer</p>' +
+        '<div class="setup-field"><label>Unforeseen Fund Amount</label>' +
+        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
+        '<input type="number" id="unforeseen-total" value="' + (month.unforeseen.total||'') + '" placeholder="0" inputmode="decimal" min="0"></div>' +
+        '<div class="setup-hint">Tip: 5-10% of joint budget is a good buffer</div>' +
+        '</div>' +
+        '<div class="setup-nav">' +
+        '<button class="btn-ghost" id="wizard-back">← Back</button>' +
+        '<button class="btn-primary" id="wizard-next">Next →</button>' +
+        '</div>';
+      document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
+      document.getElementById('wizard-next').addEventListener('click', () => {
+        month.unforeseen.total = parseFloat(document.getElementById('unforeseen-total').value) || 0;
+        saveState();
+        nextWizardStep();
+      });
+      break;
+    }
+
+    // ── Step 5: Summary ──
+    case 5: {
+      const fixedTotal = s.fixedCosts.reduce((sum,fc) => sum + fc.amount, 0);
+      const varBudget = Math.max(0, month.joint.total - fixedTotal);
+      const user1 = s.users.find(u=>u.id==='user1') || {id:'user1',name:'Alex'};
+      const user2 = s.users.find(u=>u.id==='user2') || {id:'user2',name:'Jordan'};
+      content.innerHTML =
+        '<h2>All Set!</h2>' +
+        '<p class="setup-subtitle">Here\'s your budget summary for this month</p>' +
+        '<div class="setup-summary">' +
+        '<div class="summary-row joint"><span>Joint Budget</span><strong>' + fmt(month.joint.total, currency) + '</strong></div>' +
+        (s.fixedCosts.length ? '<div class="summary-row fixed"><span>Fixed Costs Reserved</span><strong>−' + fmt(fixedTotal, currency) + '</strong></div>' : '') +
+        (s.fixedCosts.length ? '<div class="summary-row indent"><span>Variable Available</span><strong>' + fmt(varBudget, currency) + '</strong></div>' : '') +
+        '<div class="summary-row personal"><span>' + user1.name + '\'s Budget</span><strong>' + fmt(month.personal.user1.total, currency) + '</strong></div>' +
+        '<div class="summary-row personal"><span>' + user2.name + '\'s Budget</span><strong>' + fmt(month.personal.user2.total, currency) + '</strong></div>' +
+        (month.unforeseen.total > 0 ? '<div class="summary-row unforeseen"><span>Unforeseen Fund</span><strong>' + fmt(month.unforeseen.total, currency) + '</strong></div>' : '') +
+        '</div>' +
+        '<div class="setup-nav" style="margin-top:16px">' +
+        '<button class="btn-ghost" id="wizard-back">← Back</button>' +
+        '<button class="btn-primary" id="wizard-finish">Start Tracking!</button>' +
+        '</div>';
+      document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
+      document.getElementById('wizard-finish').addEventListener('click', () => {
+        saveState();
+        showScreen('expense-entry');
+      });
+      break;
+    }
   }
-
-  if (wiz.step < 5) { wiz.step++; renderWizardStep(); }
 }
 
-function wizBack() {
-  if (wiz.step > 1) { wiz.step--; renderWizardStep(); }
-}
-
-function toggleCatAlloc(checked) {
-  wiz.useCategories = checked;
-  const wrap = document.getElementById('cat-alloc-wrap');
-  if (wrap) wrap.style.display = checked ? 'flex' : 'none';
-}
-
-function usePrevMonth() {
-  const keys = Object.keys(state.months).sort();
-  if (!keys.length) return;
-  const prev = state.months[keys[keys.length - 1]];
-  wiz.jointTotal    = prev.joint.total;
-  wiz.useCategories = prev.joint.categories.some(c => c.total > 0);
-  wiz.categories    = {};
-  prev.joint.categories.forEach(c => { if (c.total > 0) wiz.categories[c.name] = c.total; });
-  state.settings.users.forEach(u => {
-    wiz.personal[u.id] = prev.personal[u.id]?.total || 0;
-  });
-  wiz.unforeseen = prev.unforeseen.allocated;
-  wiz.step = 5;
+function nextWizardStep() {
+  wizardStep++;
+  if (wizardStep >= WIZARD_STEPS) wizardStep = WIZARD_STEPS - 1;
   renderWizardStep();
 }
 
-function saveSetup() {
-  const monthKey  = currentMonthKey();
-  const categories = CATEGORIES.map(c => ({
-    name:      c.name,
-    total:     wiz.useCategories ? (wiz.categories[c.name] || 0) : 0,
-    spent:     0,
-    remaining: wiz.useCategories ? (wiz.categories[c.name] || 0) : 0,
-  }));
+/* ─── ADD FIXED COST MODAL ─── */
+function showAddFixedCostModal() {
+  const currency = state.settings.currency;
+  const iconOptions = Object.entries(FIXED_ICONS).map(([name,icon]) =>
+    '<option value="' + icon + '">' + icon + ' ' + name + '</option>'
+  ).join('');
 
-  const personal = {};
-  state.settings.users.forEach(u => {
-    const t = wiz.personal[u.id] || 0;
-    personal[u.id] = { total: t, spent: 0, remaining: t };
+  showModal('<div class="detail-modal">' +
+    '<div class="modal-handle"></div>' +
+    '<h3>Add Fixed Cost</h3>' +
+    '<div class="setup-field" style="margin-bottom:12px"><label>Name</label>' +
+    '<input class="partner-name-input" id="fc-name" placeholder="Rent, Insurance, etc." maxlength="30"></div>' +
+    '<div class="setup-field" style="margin-bottom:12px"><label>Amount (' + currency + ')</label>' +
+    '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
+    '<input type="number" id="fc-amount" placeholder="0" inputmode="decimal" min="0" step="0.01"></div></div>' +
+    '<div class="setup-field" style="margin-bottom:12px"><label>Due Day of Month</label>' +
+    '<input class="partner-name-input" id="fc-dueday" type="number" min="1" max="28" placeholder="1-28" inputmode="numeric" value="1"></div>' +
+    '<div class="setup-field" style="margin-bottom:12px"><label>Paid By</label>' +
+    '<select class="currency-select" id="fc-paidby">' +
+    '<option value="joint">Joint Account</option>' +
+    '<option value="split">Split 50/50</option>' +
+    '<option value="user1">' + (state.settings.users.find(u=>u.id==="user1")||{name:"User 1"}).name + '</option>' +
+    '<option value="user2">' + (state.settings.users.find(u=>u.id==="user2")||{name:"User 2"}).name + '</option>' +
+    '</select></div>' +
+    '<div class="setup-field" style="margin-bottom:16px"><label>Icon</label>' +
+    '<select class="currency-select" id="fc-icon">' + iconOptions + '</select></div>' +
+    '<button class="btn-primary" id="fc-save-btn" style="width:100%">Add Fixed Cost</button>' +
+    '</div>');
+
+  document.getElementById('fc-save-btn').addEventListener('click', () => {
+    const name    = (document.getElementById('fc-name').value || '').trim();
+    const amount  = parseFloat(document.getElementById('fc-amount').value) || 0;
+    const dueDay  = parseInt(document.getElementById('fc-dueday').value) || 1;
+    const paidBy  = document.getElementById('fc-paidby').value;
+    const icon    = document.getElementById('fc-icon').value;
+    if (!name || amount <= 0) return showToast('Name and amount required', 'error');
+    state.settings.fixedCosts.push({ id: 'fc_' + generateId(), name, amount, dueDay: Math.min(28, Math.max(1,dueDay)), paidBy, splitRatio: 0.5, icon, category: name });
+    saveState();
+    closeModal();
+    renderWizardStep();
   });
-
-  state.months[monthKey] = {
-    joint: {
-      total:      wiz.jointTotal,
-      spent:      0,
-      remaining:  wiz.jointTotal,
-      categories,
-    },
-    personal,
-    unforeseen: {
-      allocated: wiz.unforeseen,
-      spent:     0,
-      ious:      [],
-    },
-    transactions: [],
-  };
-
-  saveState();
-
-  // Restore bottom nav and go to expense entry
-  document.getElementById('bottom-nav').style.display = 'flex';
-  currentAmount = '';
-  showScreen('expense-entry');
-  showToast(`Budget set for ${currentMonthLabel()} 🎉`, 'success');
 }
 
-// ─── Modal ────────────────────────────────────────────────────────────────────
-
+/* ─── MODAL ─── */
 function showModal(html) {
   const overlay = document.getElementById('modal-overlay');
-  overlay.innerHTML = `<div class="modal-content">${html}</div>`;
+  if (!overlay) return;
+  overlay.innerHTML = '<div class="modal-content">' + html + '</div>';
   overlay.classList.add('show');
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); }, { once: true });
 }
 
 function closeModal() {
-  document.getElementById('modal-overlay').classList.remove('show');
+  const overlay = document.getElementById('modal-overlay');
+  if (overlay) overlay.classList.remove('show');
 }
 
-// ─── Toast ────────────────────────────────────────────────────────────────────
-
-function showToast(msg, type = 'success') {
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 3000);
+/* ─── TOAST ─── */
+function showToast(msg, type) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const el = document.createElement('div');
+  el.className = 'toast ' + (type || 'info');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2800);
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmt(n)         { return (n || 0).toFixed(2); }
-function vibrate(pat)   { if (navigator.vibrate) navigator.vibrate(pat); }
-function escHtml(str)   { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function userName(uid)  { return state.settings.users.find(u => u.id === uid)?.name || uid; }
-
-function txCard(tx) {
-  const icon = CATEGORIES.find(c => c.name === tx.category)?.icon || '📝';
-  const curr = state.settings.currency;
-  return `
-    <div class="transaction-item" onclick="showTxDetail(${tx.id})">
-      <div class="tx-icon ${tx.type}">${icon}</div>
-      <div class="tx-details">
-        <span class="tx-category">${tx.category}</span>
-        ${tx.note ? `<span class="tx-note">${escHtml(tx.note)}</span>` : ''}
-      </div>
-      <div class="tx-right">
-        <span class="tx-amount">${curr}${tx.amount.toFixed(2)}</span>
-        <span class="tx-badge ${tx.type}">${tx.type}</span>
-      </div>
-    </div>`;
+/* ─── HELPERS ─── */
+function escapeHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+/* ─── BOOT ─── */
+function boot() {
+  const hasData = loadState();
+  if (!hasData) state = defaultState();
+
+  initSync();
+
+  // Nav
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => showScreen(btn.dataset.screen));
+  });
+
+  // Mini-status tap → status screen
+  const miniStatus = document.getElementById('mini-status');
+  if (miniStatus) miniStatus.addEventListener('click', () => showScreen('status-screen'));
+
+  // Sync chip tap → profile pairing section
+  const syncChip = document.getElementById('sync-chip');
+  if (syncChip) syncChip.addEventListener('click', () => showScreen('profile-screen'));
+
+  // Init expense entry components
+  initNumpad();
+  initSubmitBtn();
+  initTypeToggle();
+  initRepeatBtn();
+  initSplitPanel();
+
+  // Check if setup needed
+  const month = state.months[currentMonthKey];
+  if (!month || month.joint.total === 0) {
+    startWizard();
+  } else {
+    showScreen('expense-entry');
+  }
+
+  // Monthly rollover check
+  checkMonthRollover();
+
+  // Keyboard: Enter submits
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && currentScreen === 'expense-entry') submitExpense();
+    if (e.key === 'Escape') closeModal();
+  });
+}
+
+function checkMonthRollover() {
+  const prevMonthKey = (() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 1);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+  })();
+
+  // If current month has no budget but last month does, copy budget settings
+  const current = state.months[currentMonthKey];
+  const prev = state.months[prevMonthKey];
+  if ((!current || current.joint.total === 0) && prev && prev.joint.total > 0) {
+    const m = ensureMonth(currentMonthKey);
+    m.joint.total = prev.joint.total;
+    m.joint.allocated = { ...prev.joint.allocated };
+    m.personal.user1.total = prev.personal.user1.total;
+    m.personal.user2.total = prev.personal.user2.total;
+    m.unforeseen.total = prev.unforeseen.total;
+    saveState();
+    showToast('Budget rolled over from last month', 'info');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', boot);

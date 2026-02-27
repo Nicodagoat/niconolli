@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="CoupleBook">
   <meta name="theme-color" content="#22223B">
-  <meta name="description" content="Fast couple budget tracking - log expenses in 3 seconds">
+  <meta name="description" content="Fast couple budget tracking — log expenses in 3 seconds">
   <title>CoupleBook</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="manifest" href="manifest.json">
@@ -16,7 +16,7 @@
 <body>
   <div id="app">
 
-    <!-- ═══ SETUP WIZARD (shown first use / new month) ═══ -->
+    <!-- ═══ SETUP WIZARD ═══ -->
     <div id="setup-wizard" class="screen">
       <div class="setup-header">
         <div id="setup-progress" class="setup-progress"></div>
@@ -24,13 +24,21 @@
       <div id="setup-step-content" class="setup-step-content"></div>
     </div>
 
-    <!-- ═══ EXPENSE ENTRY (default screen after setup) ═══ -->
+    <!-- ═══ EXPENSE ENTRY (default screen) ═══ -->
     <div id="expense-entry" class="screen">
 
-      <!-- Mini status bar: tappable, shows remaining budgets -->
-      <div id="mini-status" class="mini-status" role="button" tabindex="0" aria-label="View budget status"></div>
+      <!-- Mini status bar: budget remaining + sync chip -->
+      <div class="mini-status-wrap">
+        <div id="mini-status" class="mini-status" role="button" tabindex="0" aria-label="View budget status"></div>
+        <div id="sync-chip" class="sync-chip sync-offline" title="Sync status" role="status" aria-live="polite">
+          <span class="sync-dot"></span><span class="sync-label">Offline</span>
+        </div>
+      </div>
 
-      <!-- Amount display area -->
+      <!-- Due-soon fixed cost shortcuts (hidden when nothing due) -->
+      <div id="due-soon-bar" class="due-soon-bar" aria-label="Fixed costs due soon"></div>
+
+      <!-- Amount display -->
       <div class="amount-area">
         <div class="amount-display-row" id="amount-area-el">
           <span id="currency-symbol" class="currency-symbol">€</span>
@@ -46,8 +54,37 @@
         <button class="type-toggle-btn" data-type="unforeseen">Unforeseen</button>
       </div>
 
-      <!-- Category pills - horizontally scrollable -->
+      <!-- Category section: fixed costs + variable in one scrollable row -->
       <div id="category-pills" class="category-pills" role="group" aria-label="Expense category"></div>
+
+      <!-- Split expense panel (collapsed by default) -->
+      <div class="split-section">
+        <button id="split-toggle-btn" class="split-toggle-btn" aria-expanded="false">
+          Split expense <span class="split-chevron">▾</span>
+        </button>
+        <div id="split-panel" class="split-panel" hidden>
+          <div class="paid-by-row">
+            <span class="paid-by-label">Paid by:</span>
+            <button class="paid-by-btn active" data-paid="me">Me</button>
+            <button class="paid-by-btn" data-paid="partner">Partner</button>
+            <button class="paid-by-btn" data-paid="both">Split 50/50</button>
+          </div>
+          <div id="split-ratio-row" class="split-ratio-row" hidden>
+            <div class="split-ratio-labels">
+              <span id="split-me-pct">50%</span>
+              <span class="split-vs">vs</span>
+              <span id="split-partner-pct">50%</span>
+            </div>
+            <input type="range" id="split-ratio" min="0" max="100" value="50" step="5"
+              aria-label="Split ratio">
+            <div class="split-names-row">
+              <span id="split-my-name">Me</span>
+              <span id="split-partner-name">Partner</span>
+            </div>
+          </div>
+          <div id="iou-preview" class="iou-preview" hidden></div>
+        </div>
+      </div>
 
       <!-- Note input with repeat button -->
       <div class="note-row">
@@ -67,18 +104,18 @@
 
       <!-- Custom number pad -->
       <div id="numpad" class="numpad" role="group" aria-label="Number pad">
-        <button class="num-btn" data-value="1" aria-label="1">1</button>
-        <button class="num-btn" data-value="2" aria-label="2">2</button>
-        <button class="num-btn" data-value="3" aria-label="3">3</button>
-        <button class="num-btn" data-value="4" aria-label="4">4</button>
-        <button class="num-btn" data-value="5" aria-label="5">5</button>
-        <button class="num-btn" data-value="6" aria-label="6">6</button>
-        <button class="num-btn" data-value="7" aria-label="7">7</button>
-        <button class="num-btn" data-value="8" aria-label="8">8</button>
-        <button class="num-btn" data-value="9" aria-label="9">9</button>
-        <button class="num-btn decimal" data-value="." aria-label="decimal point">.</button>
-        <button class="num-btn" data-value="0" aria-label="0">0</button>
-        <button class="num-btn backspace" data-value="backspace" aria-label="backspace">⌫</button>
+        <button class="num-btn" data-value="1">1</button>
+        <button class="num-btn" data-value="2">2</button>
+        <button class="num-btn" data-value="3">3</button>
+        <button class="num-btn" data-value="4">4</button>
+        <button class="num-btn" data-value="5">5</button>
+        <button class="num-btn" data-value="6">6</button>
+        <button class="num-btn" data-value="7">7</button>
+        <button class="num-btn" data-value="8">8</button>
+        <button class="num-btn" data-value="9">9</button>
+        <button class="num-btn decimal" data-value=".">.</button>
+        <button class="num-btn" data-value="0">0</button>
+        <button class="num-btn backspace" data-value="backspace">⌫</button>
       </div>
 
       <!-- Submit button -->
