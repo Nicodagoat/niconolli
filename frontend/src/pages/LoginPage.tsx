@@ -1,8 +1,31 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Leaf, Eye, EyeOff, AlertCircle } from 'lucide-react';
-import { authAPI } from '../services/api';
 import { useStore } from '../store';
+
+// Default credentials - client-side auth (no backend needed)
+const DEFAULT_USERS = [
+  {
+    email: 'admin@ghgplatform.local',
+    password: 'admin123!',
+    user: {
+      id: '1',
+      email: 'admin@ghgplatform.local',
+      full_name: 'Platform Administrator',
+      role: 'admin',
+    },
+  },
+  {
+    email: 'demo@ghgplatform.local',
+    password: 'demo123!',
+    user: {
+      id: '2',
+      email: 'demo@ghgplatform.local',
+      full_name: 'Demo User',
+      role: 'sme_user',
+    },
+  },
+];
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -17,33 +40,31 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
-    try {
-      const res = await authAPI.login(email, password);
-      setToken(res.data.access_token);
-      if (res.data.refresh_token) {
-        localStorage.setItem('refresh_token', res.data.refresh_token);
-      }
-      if (res.data.user) {
-        setUser(res.data.user);
-      }
+
+    // Small delay to feel natural
+    await new Promise((r) => setTimeout(r, 300));
+
+    const match = DEFAULT_USERS.find(
+      (u) => u.email === email.trim().toLowerCase() && u.password === password
+    );
+
+    if (match) {
+      // Generate a simple token (client-side only)
+      const token = btoa(JSON.stringify({ sub: match.user.id, email: match.user.email, role: match.user.role, iat: Date.now() }));
+      setToken(token);
+      setUser(match.user);
       navigate('/dashboard');
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail || 'Login failed. Check your credentials.';
-      setError(msg);
-    } finally {
-      setLoading(false);
+    } else {
+      setError('Invalid email or password.');
     }
+
+    setLoading(false);
   };
 
-  const handleSetupAdmin = async () => {
-    try {
-      const res = await authAPI.setupAdmin();
-      setEmail(res.data.email);
-      setPassword(res.data.password);
-      setError('');
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Admin already exists');
-    }
+  const fillCredentials = (idx: number) => {
+    setEmail(DEFAULT_USERS[idx].email);
+    setPassword(DEFAULT_USERS[idx].password);
+    setError('');
   };
 
   return (
@@ -114,17 +135,33 @@ export default function LoginPage() {
             </button>
           </form>
 
+          {/* Quick login buttons */}
           <div className="mt-6 pt-4 border-t border-surface-border">
-            <p className="text-xs text-gray-500 text-center mb-3">
-              No account? Contact your platform administrator for an invitation.
-            </p>
-            <button
-              onClick={handleSetupAdmin}
-              className="w-full py-2 text-xs text-gray-500 hover:text-gray-300 border border-surface-border rounded-lg hover:border-surface-hover transition-colors"
-            >
-              First time? Initialize Admin Account
-            </button>
+            <p className="text-xs text-gray-500 text-center mb-3">Quick access</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => fillCredentials(0)}
+                className="py-2 text-xs text-gray-400 hover:text-white border border-surface-border rounded-lg hover:border-brand-blue/50 transition-colors"
+              >
+                Admin Account
+              </button>
+              <button
+                onClick={() => fillCredentials(1)}
+                className="py-2 text-xs text-gray-400 hover:text-white border border-surface-border rounded-lg hover:border-brand-blue/50 transition-colors"
+              >
+                Demo User
+              </button>
+            </div>
           </div>
+        </div>
+
+        {/* Credentials hint */}
+        <div className="mt-4 p-3 bg-surface-card/50 rounded-xl border border-surface-border">
+          <p className="text-[11px] text-gray-500 text-center leading-relaxed">
+            <span className="text-gray-400 font-medium">Admin:</span> admin@ghgplatform.local / admin123!
+            <br />
+            <span className="text-gray-400 font-medium">Demo:</span> demo@ghgplatform.local / demo123!
+          </p>
         </div>
 
         {/* Info badges */}

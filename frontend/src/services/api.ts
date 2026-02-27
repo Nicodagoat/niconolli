@@ -32,6 +32,7 @@ api.interceptors.response.use(
         window.location.href = '/login';
       }
     }
+    // Silently reject network errors for non-critical API calls
     return Promise.reject(error);
   }
 );
