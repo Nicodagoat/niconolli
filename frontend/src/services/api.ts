@@ -20,21 +20,10 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// 401 interceptor - redirect to login
+// Response interceptor - silently handle errors (auth is client-side, no logout on API failures)
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401 && !error.config.url?.includes('/auth/')) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      localStorage.removeItem('refresh_token');
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
-    }
-    // Silently reject network errors for non-critical API calls
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 // Auth
