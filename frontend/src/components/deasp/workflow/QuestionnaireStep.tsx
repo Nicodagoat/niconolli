@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { FileText, Send, CheckCircle, Clock, AlertTriangle, XCircle, Mail } from 'lucide-react';
 
 interface Props {
@@ -16,16 +15,14 @@ const DEMO_QUESTIONNAIRES = [
 ];
 
 const STATUS_CONFIG: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
-  completed: { icon: <CheckCircle className="w-4 h-4" />, label: 'Compilato', color: 'text-green-600 bg-green-50' },
-  in_progress: { icon: <Clock className="w-4 h-4" />, label: 'In corso', color: 'text-blue-600 bg-blue-50' },
-  sent: { icon: <Clock className="w-4 h-4" />, label: 'In attesa', color: 'text-amber-600 bg-amber-50' },
-  expired: { icon: <AlertTriangle className="w-4 h-4" />, label: 'Scaduto', color: 'text-orange-600 bg-orange-50' },
-  not_responded: { icon: <XCircle className="w-4 h-4" />, label: 'Non risposto', color: 'text-red-600 bg-red-50' },
+  completed: { icon: <CheckCircle className="w-4 h-4" />, label: 'Compilato', color: 'text-brand-green bg-brand-green/10' },
+  in_progress: { icon: <Clock className="w-4 h-4" />, label: 'In corso', color: 'text-[#6060FF] bg-[#6060FF]/10' },
+  sent: { icon: <Clock className="w-4 h-4" />, label: 'In attesa', color: 'text-brand-yellow bg-brand-yellow/10' },
+  expired: { icon: <AlertTriangle className="w-4 h-4" />, label: 'Scaduto', color: 'text-orange-400 bg-orange-400/10' },
+  not_responded: { icon: <XCircle className="w-4 h-4" />, label: 'Non risposto', color: 'text-red-400 bg-red-400/10' },
 };
 
 export default function QuestionnaireStep({ onNext, onBack }: Props) {
-  const [sending, setSending] = useState(false);
-
   const completed = DEMO_QUESTIONNAIRES.filter(q => q.status === 'completed').length;
   const total = DEMO_QUESTIONNAIRES.length;
   const pct = Math.round(completed / total * 100);
@@ -33,30 +30,30 @@ export default function QuestionnaireStep({ onNext, onBack }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
-          <FileText className="w-5 h-5 text-blue-600" />
+        <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
+          <FileText className="w-5 h-5 text-[#6060FF]" />
           <span>Step 2: Questionari Concessionari</span>
         </h3>
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-sm text-gray-400 mt-1">
           Gestisci l'invio e la raccolta dei questionari per i concessionari portuali
         </p>
       </div>
 
       {/* Progress Bar */}
-      <div className="bg-gray-50 rounded-lg p-4">
+      <div className="bg-surface-hover rounded-lg p-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-700">Stato risposte</span>
-          <span className="text-sm font-bold text-gray-900">{completed}/{total} ({pct}%)</span>
+          <span className="text-sm font-medium text-gray-300">Stato risposte</span>
+          <span className="text-sm font-bold text-white">{completed}/{total} ({pct}%)</span>
         </div>
-        <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
+        <div className="w-full h-3 bg-surface-hover rounded-full overflow-hidden">
           <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
         </div>
       </div>
 
       {/* Send Button */}
       <button
-        onClick={() => setSending(true)}
-        className="flex items-center space-x-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        onClick={() => {}}
+        className="flex items-center space-x-2 px-4 py-2 text-sm primary-gradient text-white rounded-lg hover:opacity-90"
       >
         <Send className="w-4 h-4" />
         <span>Invia questionari a concessionari mancanti</span>
@@ -65,26 +62,26 @@ export default function QuestionnaireStep({ onNext, onBack }: Props) {
       {/* Questionnaire Status Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
+          <thead className="bg-surface-hover border-b border-surface-border">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Concessionario</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Porto</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stato</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Completamento</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Azioni</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Concessionario</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Porto</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Stato</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Completamento</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Azioni</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-surface-border">
             {DEMO_QUESTIONNAIRES.map((q) => {
               const statusCfg = STATUS_CONFIG[q.status];
               return (
-                <tr key={q.id} className="hover:bg-gray-50">
+                <tr key={q.id} className="hover:bg-surface-hover">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{q.name}</div>
+                    <div className="font-medium text-white">{q.name}</div>
                     <div className="text-xs text-gray-400">{q.email}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-brand-blue/10 text-brand-blue">
                       {q.port}
                     </span>
                   </td>
@@ -96,20 +93,20 @@ export default function QuestionnaireStep({ onNext, onBack }: Props) {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end space-x-2">
-                      <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="w-20 h-2 bg-surface-hover rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full ${q.pct === 100 ? 'bg-green-500' : q.pct > 0 ? 'bg-blue-500' : 'bg-gray-300'}`}
                           style={{ width: `${q.pct}%` }}
                         />
                       </div>
-                      <span className="text-xs text-gray-500">{q.pct}%</span>
+                      <span className="text-xs text-gray-400">{q.pct}%</span>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right">
                     {q.status === 'completed' ? (
-                      <button className="text-xs text-blue-600 hover:text-blue-700">Visualizza</button>
+                      <button className="text-xs text-[#6060FF] hover:text-blue-700">Visualizza</button>
                     ) : (
-                      <button className="flex items-center space-x-1 text-xs text-gray-500 hover:text-blue-600">
+                      <button className="flex items-center space-x-1 text-xs text-gray-400 hover:text-[#6060FF]">
                         <Mail className="w-3 h-3" />
                         <span>Sollecita</span>
                       </button>
@@ -123,13 +120,13 @@ export default function QuestionnaireStep({ onNext, onBack }: Props) {
       </div>
 
       {/* Navigation */}
-      <div className="flex justify-between pt-4 border-t">
-        <button onClick={onBack} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
+      <div className="flex justify-between pt-4 border-t border-surface-border">
+        <button onClick={onBack} className="px-4 py-2 text-sm border border-surface-border rounded-lg hover:bg-surface-hover text-gray-300">
           ← Indietro
         </button>
         <button
           onClick={onNext}
-          className="px-6 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          className="px-6 py-2 text-sm primary-gradient text-white rounded-lg hover:opacity-90"
         >
           Prosegui → Calcolo Emissioni
         </button>

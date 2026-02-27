@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Upload, Download, Ship, CheckCircle, AlertCircle, FileText } from 'lucide-react';
+import { Upload, Download, Ship, CheckCircle } from 'lucide-react';
 
 interface Props {
   onNext: () => void;
@@ -24,11 +24,11 @@ export default function ShipImportStep({ onNext }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
-          <Ship className="w-5 h-5 text-blue-600" />
+        <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
+          <Ship className="w-5 h-5 text-[#6060FF]" />
           <span>Step 1: Import Dati Navi</span>
         </h3>
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-sm text-gray-400 mt-1">
           Carica il file con gli scali navali per il periodo di riferimento
         </p>
       </div>
@@ -42,11 +42,11 @@ export default function ShipImportStep({ onNext }: Props) {
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); setDragActive(false); handleImport(); }}
             className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors ${
-              dragActive ? 'border-blue-400 bg-blue-50' : 'border-gray-300 bg-gray-50'
+              dragActive ? 'border-brand-blue bg-brand-blue/10' : 'border-surface-border bg-surface-hover'
             }`}
           >
             <Upload className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-            <p className="text-sm text-gray-600 mb-2">
+            <p className="text-sm text-gray-400 mb-2">
               Trascina qui il file Excel/CSV con i dati navi
             </p>
             <p className="text-xs text-gray-400 mb-4">
@@ -55,11 +55,11 @@ export default function ShipImportStep({ onNext }: Props) {
             <div className="flex items-center justify-center space-x-3">
               <button
                 onClick={handleImport}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="px-4 py-2 text-sm primary-gradient text-white rounded-lg hover:opacity-90"
               >
                 Scegli File
               </button>
-              <button className="flex items-center space-x-1 px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button className="flex items-center space-x-1 px-4 py-2 text-sm border border-surface-border text-gray-300 rounded-lg hover:bg-surface-hover">
                 <Download className="w-4 h-4" />
                 <span>Scarica template DEASP navi.xlsx</span>
               </button>
@@ -69,13 +69,13 @@ export default function ShipImportStep({ onNext }: Props) {
       ) : (
         <>
           {/* Import Result */}
-          <div className="flex items-center space-x-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <CheckCircle className="w-5 h-5 text-green-600" />
+          <div className="flex items-center space-x-3 p-4 bg-brand-green/5 border border-brand-green/20 rounded-lg">
+            <CheckCircle className="w-5 h-5 text-brand-green/80" />
             <div>
-              <p className="text-sm font-medium text-green-800">
+              <p className="text-sm font-medium text-brand-green">
                 Importazione completata: {DEMO_SHIPS.length} navi caricate
               </p>
-              <p className="text-xs text-green-600">
+              <p className="text-xs text-brand-green/80">
                 0 errori | Porte riconosciute: Augusta, Catania, Siracusa | GT classificato automaticamente
               </p>
             </div>
@@ -83,33 +83,33 @@ export default function ShipImportStep({ onNext }: Props) {
 
           {/* Data Preview */}
           <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-2">Anteprima dati importati</h4>
+            <h4 className="text-sm font-semibold text-gray-300 mb-2">Anteprima dati importati</h4>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b">
+                <thead className="bg-surface-hover border-b border-surface-border">
                   <tr>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">IMO</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Nave</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Porto</th>
-                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">GT</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Classe GT</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Categoria</th>
-                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Ore</th>
-                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Manovre</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">IMO</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Nave</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Porto</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-400">GT</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Classe GT</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Categoria</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-400">Ore</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-400">Manovre</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-surface-border">
                   {DEMO_SHIPS.map((ship) => (
-                    <tr key={ship.imo} className="hover:bg-gray-50">
-                      <td className="px-3 py-2 font-mono text-gray-600">{ship.imo}</td>
-                      <td className="px-3 py-2 font-medium text-gray-900">{ship.name}</td>
+                    <tr key={ship.imo} className="hover:bg-surface-hover">
+                      <td className="px-3 py-2 font-mono text-gray-400">{ship.imo}</td>
+                      <td className="px-3 py-2 font-medium text-white">{ship.name}</td>
                       <td className="px-3 py-2">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-brand-blue/10 text-brand-blue">
                           {ship.port}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right">{ship.gt.toLocaleString()}</td>
-                      <td className="px-3 py-2 text-xs text-gray-500">
+                      <td className="px-3 py-2 text-xs text-gray-400">
                         {ship.gt < 5000 ? '1000-4999' : ship.gt < 25000 ? '5000-24999' : ship.gt < 50000 ? '25000-49999' : '50000+'}
                       </td>
                       <td className="px-3 py-2 capitalize">{ship.category.replace(/_/g, ' ')}</td>
@@ -125,11 +125,11 @@ export default function ShipImportStep({ onNext }: Props) {
       )}
 
       {/* Actions */}
-      <div className="flex justify-end pt-4 border-t">
+      <div className="flex justify-end pt-4 border-t border-surface-border">
         <button
           onClick={onNext}
           disabled={!imported}
-          className="px-6 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-6 py-2 text-sm primary-gradient text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Prosegui → Questionari Concessionari
         </button>

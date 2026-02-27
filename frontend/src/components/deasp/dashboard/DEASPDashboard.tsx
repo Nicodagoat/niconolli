@@ -1,4 +1,4 @@
-import { Ship, Factory, Zap, TrendingDown, Database, Bell, MapPin, BarChart3 } from 'lucide-react';
+import { Ship, Factory, Database, Bell, BarChart3 } from 'lucide-react';
 import StatCard from '../../common/StatCard';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend,
@@ -48,8 +48,8 @@ export default function DEASPDashboard({ embedded = false }: Props) {
     <div className="space-y-6">
       {!embedded && (
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Dashboard DEASP</h2>
-          <p className="text-sm text-gray-500">
+          <h2 className="text-xl font-bold text-white">Dashboard DEASP</h2>
+          <p className="text-sm text-gray-400">
             Panoramica emissioni sistema portuale - Anno 2024 (Dati demo)
           </p>
         </div>
@@ -88,12 +88,12 @@ export default function DEASPDashboard({ embedded = false }: Props) {
       </div>
 
       {/* Novità normative */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-        <h3 className="text-sm font-semibold text-blue-800 mb-2 flex items-center space-x-2">
+      <div className="bg-brand-blue/5 border border-brand-blue/20 rounded-xl p-4">
+        <h3 className="text-sm font-semibold text-[#6060FF] mb-2 flex items-center space-x-2">
           <Bell className="w-4 h-4" />
           <span>Novità Normative</span>
         </h3>
-        <div className="space-y-1 text-sm text-blue-700">
+        <div className="space-y-1 text-sm text-[#6060FF]/80">
           <p>ISPRA ha pubblicato nuovi fattori emissione 2024 (15/06/2024)</p>
           <p>EMEP/EEA Guidebook 2024 disponibile per revisione</p>
           <p>MIT Circolare n.123/2024: nuove linee guida DEASP</p>
@@ -102,8 +102,8 @@ export default function DEASPDashboard({ embedded = false }: Props) {
 
       {/* Charts Row 1: Port comparison and category split */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Emissioni per Porto</h3>
+        <div className="bg-surface-card rounded-xl border border-surface-border p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Emissioni per Porto</h3>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={DEMO_PORT_DATA}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -117,8 +117,8 @@ export default function DEASPDashboard({ embedded = false }: Props) {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Ripartizione Emissioni</h3>
+        <div className="bg-surface-card rounded-xl border border-surface-border p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Ripartizione Emissioni</h3>
           <ResponsiveContainer width="100%" height={280}>
             <PieChart>
               <Pie
@@ -143,8 +143,8 @@ export default function DEASPDashboard({ embedded = false }: Props) {
 
       {/* Charts Row 2: Factor sources and factor evolution */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Fonti Fattori di Emissione</h3>
+        <div className="bg-surface-card rounded-xl border border-surface-border p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Fonti Fattori di Emissione</h3>
           <ResponsiveContainer width="100%" height={250}>
             <PieChart>
               <Pie
@@ -164,8 +164,8 @@ export default function DEASPDashboard({ embedded = false }: Props) {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Evoluzione Fattore Elettricità</h3>
+        <div className="bg-surface-card rounded-xl border border-surface-border p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Evoluzione Fattore Elettricità</h3>
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={DEMO_FACTOR_HISTORY}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -182,7 +182,7 @@ export default function DEASPDashboard({ embedded = false }: Props) {
               />
             </LineChart>
           </ResponsiveContainer>
-          <p className="text-xs text-gray-500 mt-2">
+          <p className="text-xs text-gray-400 mt-2">
             Trend: -7,1% dal 2023 al 2024 (fonte ISPRA)
           </p>
         </div>

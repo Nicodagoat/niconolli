@@ -7,6 +7,7 @@ from app.models.calculation import CalculationResult
 from app.models.audit import AuditLog
 from app.models.client import Client
 from app.models.deasp_project import DEASPProject
+from app.models.notification import Notification
 
 __all__ = [
     "Organization",
@@ -20,4 +21,5 @@ __all__ = [
     "AuditLog",
     "Client",
     "DEASPProject",
+    "Notification",
 ]

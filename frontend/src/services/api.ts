@@ -20,12 +20,55 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// 401 interceptor - redirect to login
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && !error.config.url?.includes('/auth/')) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('refresh_token');
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Auth
 export const authAPI = {
   login: (email: string, password: string) =>
-    api.post<{ access_token: string }>('/auth/login', { email, password }),
-  register: (data: { email: string; password: string; full_name: string; organization_id: string }) =>
+    api.post<{ access_token: string; refresh_token?: string; user?: any }>('/auth/login', { email, password }),
+  register: (data: { email: string; password: string; full_name: string; organization_id?: string }) =>
     api.post('/auth/register', data),
+  refresh: (refreshToken: string) =>
+    api.post<{ access_token: string }>('/auth/refresh', null, { params: { refresh_token: refreshToken } }),
+  me: () => api.get('/auth/me'),
+  setupAdmin: () => api.post('/auth/setup-admin'),
+};
+
+// User Management
+export const userAPI = {
+  list: (params?: Record<string, string | boolean>) =>
+    api.get('/users/', { params }),
+  invite: (data: { email: string; full_name: string; role: string; organization_id?: string }) =>
+    api.post('/users/invite', data),
+  get: (id: string) => api.get(`/users/${id}`),
+  update: (id: string, data: Record<string, any>) => api.patch(`/users/${id}`, data),
+  resetPassword: (id: string) => api.post(`/users/${id}/reset-password`),
+  changePassword: (data: { current_password: string; new_password: string }) =>
+    api.patch('/users/me/password', data),
+  getProfile: () => api.get('/users/me'),
+};
+
+// Notifications
+export const notificationAPI = {
+  list: (params?: { unread_only?: boolean; module?: string; limit?: number }) =>
+    api.get('/notifications/', { params }),
+  count: () => api.get('/notifications/count'),
+  markRead: (id: string) => api.post(`/notifications/${id}/read`),
+  markAllRead: () => api.post('/notifications/read-all'),
 };
 
 // Organizations

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, FileSpreadsheet, FileText, QrCode, CheckCircle, Globe } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, CheckCircle, Globe } from 'lucide-react';
 
 interface Props {
   onBack: () => void;

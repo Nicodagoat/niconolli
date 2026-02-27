@@ -9,8 +9,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8)
     full_name: str = Field(..., min_length=1, max_length=255)
-    organization_id: UUID
-    role: UserRole = UserRole.ANALYST
+    organization_id: Optional[UUID] = None
 
 
 class UserLogin(BaseModel):
@@ -23,10 +22,10 @@ class UserResponse(BaseModel):
     email: str
     full_name: str
     role: UserRole
-    organization_id: UUID
+    organization_id: Optional[UUID] = None
     is_active: bool
     created_at: datetime
-    last_login: Optional[datetime]
+    last_login: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

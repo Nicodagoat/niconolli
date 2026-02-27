@@ -5,11 +5,13 @@ from app.core.config import settings
 from app.api.routes import auth, organizations, inventories, activities, emission_factors, calculations, reports
 from app.api.routes.clients import router as clients_router
 from app.api.routes.deasp.deasp_routes import router as deasp_router
+from app.api.routes.notifications import router as notifications_router
+from app.api.routes.users import router as users_router
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="GHG Emissions Accounting Platform for SMEs - Calculate Scope 1, 2, and 3 emissions with automated conversion factor management.",
+    description="GHG Emissions Accounting Platform - SME Scope 1/2/3 and DEASP Port Authority emissions with ISO 14064-1 compliance.",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -33,6 +35,8 @@ app.include_router(calculations.router, prefix=settings.API_PREFIX)
 app.include_router(reports.router, prefix=settings.API_PREFIX)
 app.include_router(clients_router, prefix=settings.API_PREFIX)
 app.include_router(deasp_router, prefix=settings.API_PREFIX)
+app.include_router(notifications_router, prefix=settings.API_PREFIX)
+app.include_router(users_router, prefix=settings.API_PREFIX)
 
 
 @app.get("/")

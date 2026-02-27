@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Users, FolderKanban, BarChart3, TrendingDown,
-  ChevronRight, MoreHorizontal, Plus,
+  FolderKanban, BarChart3, Building2,
+  ChevronRight, Plus, Flame, Zap, Link2, Anchor,
 } from 'lucide-react';
 import StatCard from '../components/common/StatCard';
 import { dashboardAPI } from '../services/api';
 import { formatTonnes } from '../utils/formatters';
+import { useStore } from '../store';
 import type { Client, DEASPProject, DashboardSummary } from '../types';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -17,9 +18,22 @@ const STATUS_COLORS: Record<string, string> = {
   on_hold: 'bg-amber-500/20 text-amber-400',
   completed: 'bg-brand-green/20 text-brand-green',
   cancelled: 'bg-red-500/20 text-red-400',
+  draft: 'bg-gray-500/20 text-gray-400',
+  data_collection: 'bg-brand-yellow/20 text-brand-yellow',
+  calculation: 'bg-brand-blue/20 text-[#6060FF]',
+  review: 'bg-purple-500/20 text-purple-400',
+  finalized: 'bg-brand-green/20 text-brand-green',
 };
 
-// Demo data fallback
+const DEMO_SME_PROJECTS = [
+  { id: '1', project_id: 'SME-2025-00001', company_name: 'TechnoVerde S.r.l.',
+    status: 'data_collection', total_co2e: 1351.4, completeness: 65 },
+  { id: '2', project_id: 'SME-2025-00002', company_name: 'Manifattura Sicilia S.p.A.',
+    status: 'calculation', total_co2e: 3540.0, completeness: 92 },
+  { id: '3', project_id: 'SME-2024-00003', company_name: 'Green Logistics Italia',
+    status: 'finalized', total_co2e: 6450.0, completeness: 100 },
+];
+
 const DEMO_CLIENTS: Client[] = [
   { id: '1', name: 'Porto di Augusta S.r.l.', industry: 'transportation', status: 'active',
     contact_name: 'Marco Ferretti', contact_email: 'm.ferretti@portoaugusta.it', country: 'ITA',
@@ -33,13 +47,9 @@ const DEMO_CLIENTS: Client[] = [
     contact_name: 'Giuseppe Rizzo', country: 'ITA',
     total_scope1_tonnes: 450.5, total_scope2_tonnes: 310.7, total_scope3_tonnes: 980.3,
     total_co2e_tonnes: 1741.5, created_at: '2024-03-05', updated_at: '2024-10-15' },
-  { id: '4', name: 'Navigazione Messina', industry: 'transportation', status: 'inactive',
-    contact_name: 'Anna Bianchi', country: 'ITA',
-    total_scope1_tonnes: 620.0, total_scope2_tonnes: 410.0, total_scope3_tonnes: 1100.0,
-    total_co2e_tonnes: 2130.0, created_at: '2024-04-20', updated_at: '2024-08-30' },
 ];
 
-const DEMO_PROJECTS: DEASPProject[] = [
+const DEMO_DEASP_PROJECTS: DEASPProject[] = [
   { id: 'p1', client_id: '1', name: 'Riduzione Emissioni Hotelling 2025',
     description: 'Cold ironing per ridurre emissioni navi in sosta',
     status: 'in_progress', target_reduction_tonnes: 500.0,
@@ -47,23 +57,16 @@ const DEMO_PROJECTS: DEASPProject[] = [
     progress_pct: 72.5, start_date: '2025-01-15', end_date: '2025-12-31',
     created_at: '2025-01-15', updated_at: '2025-02-20' },
   { id: 'p2', client_id: '2', name: 'Elettrificazione Mezzi Portuali',
-    description: 'Sostituzione carrelli elevatori diesel con elettrici',
-    status: 'planning', target_reduction_tonnes: 200.0,
-    baseline_emissions_tonnes: 2701.1, current_emissions_tonnes: 2701.1,
-    progress_pct: 0, start_date: '2025-06-01', end_date: '2026-06-01',
-    created_at: '2025-02-01', updated_at: '2025-02-20' },
-  { id: 'p3', client_id: '1', name: 'Fotovoltaico Aree Portuali',
-    description: 'Pannelli solari su coperture magazzini',
-    status: 'completed', target_reduction_tonnes: 300.0,
-    baseline_emissions_tonnes: 4825.7, current_emissions_tonnes: 4500.0,
-    progress_pct: 100, start_date: '2024-03-01', end_date: '2024-12-31',
-    created_at: '2024-03-01', updated_at: '2024-12-31' },
+    status: 'planning', baseline_emissions_tonnes: 2701.1, current_emissions_tonnes: 2701.1,
+    progress_pct: 0, created_at: '2025-02-01', updated_at: '2025-02-20' },
 ];
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const { user } = useStore();
   const [clients, setClients] = useState<Client[]>(DEMO_CLIENTS);
-  const [projects, setProjects] = useState<DEASPProject[]>(DEMO_PROJECTS);
+  const [deaspProjects, setDeaspProjects] = useState<DEASPProject[]>(DEMO_DEASP_PROJECTS);
+  const [smeProjects] = useState(DEMO_SME_PROJECTS);
 
   useEffect(() => {
     loadDashboard();
@@ -74,120 +77,146 @@ export default function DashboardPage() {
       const res = await dashboardAPI.getSummary();
       const data: DashboardSummary = res.data;
       setClients(data.clients);
-      setProjects(data.projects);
+      setDeaspProjects(data.projects);
     } catch {
       // Keep demo data
     }
   };
 
-  const totalEmissions = clients.reduce((s, c) => s + c.total_co2e_tonnes, 0);
-  const activeClients = clients.filter((c) => c.status === 'active').length;
-  const activeProjects = projects.filter((p) => p.status === 'in_progress' || p.status === 'planning').length;
-  const avgProgress = (() => {
-    const withProgress = projects.filter(p => p.progress_pct > 0);
-    return withProgress.length > 0
-      ? (withProgress.reduce((s, p) => s + p.progress_pct, 0) / withProgress.length).toFixed(0)
-      : '0';
-  })();
+  const showSME = !user || user.role !== 'deasp_user';
+  const showDEASP = !user || user.role !== 'sme_user';
 
-  const getClientName = (clientId: string) => clients.find((c) => c.id === clientId)?.name ?? 'Unknown';
+  const totalSMEEmissions = smeProjects.reduce((s, p) => s + p.total_co2e, 0);
+  const totalDEASPEmissions = clients.reduce((s, c) => s + c.total_co2e_tonnes, 0);
+  const activeClients = clients.filter(c => c.status === 'active').length;
+  const activeDeasp = deaspProjects.filter(p => p.status === 'in_progress' || p.status === 'planning').length;
+  const activeSME = smeProjects.filter(p => p.status !== 'finalized').length;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-          <p className="text-sm text-gray-400 mt-1">Overview of clients and DEASP projects</p>
+          <p className="text-sm text-gray-400 mt-1">
+            {user?.full_name ? `Welcome back, ${user.full_name}` : 'Overview of your GHG accounting projects'}
+          </p>
+        </div>
+        <div className="flex items-center space-x-3">
+          {showSME && (
+            <button onClick={() => navigate('/sme-projects')}
+              className="flex items-center space-x-2 px-3 py-2 text-sm bg-brand-green/10 text-brand-green border border-brand-green/30 rounded-lg hover:bg-brand-green/20">
+              <Plus className="w-4 h-4" /><span>New SME Project</span>
+            </button>
+          )}
+          {showDEASP && (
+            <button onClick={() => navigate('/deasp')}
+              className="flex items-center space-x-2 px-3 py-2 text-sm bg-brand-blue/10 text-[#6060FF] border border-brand-blue/30 rounded-lg hover:bg-brand-blue/20">
+              <Plus className="w-4 h-4" /><span>New DEASP Project</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Emissions" value={`${formatTonnes(totalEmissions)} tCO2e`}
-          subtitle="Across all clients" icon={<BarChart3 className="w-6 h-6" />} color="blue" />
-        <StatCard title="Active Clients" value={`${activeClients}`}
-          subtitle={`${clients.length} total`} icon={<Users className="w-6 h-6" />} color="green" />
-        <StatCard title="Active Projects" value={`${activeProjects}`}
-          subtitle={`${projects.length} total`} icon={<FolderKanban className="w-6 h-6" />} color="yellow" />
-        <StatCard title="Avg Reduction" value={`${avgProgress}%`}
-          subtitle="Progress toward targets" icon={<TrendingDown className="w-6 h-6" />} color="green" />
+        {showSME && (
+          <StatCard title="SME Emissions" value={`${formatTonnes(totalSMEEmissions)} tCO2e`}
+            subtitle={`${activeSME} active projects`} icon={<Building2 className="w-6 h-6" />} color="green" />
+        )}
+        {showDEASP && (
+          <>
+            <StatCard title="DEASP Emissions" value={`${formatTonnes(totalDEASPEmissions)} tCO2e`}
+              subtitle={`${activeClients} port authorities`} icon={<Anchor className="w-6 h-6" />} color="blue" />
+            <StatCard title="DEASP Projects" value={`${activeDeasp}`}
+              subtitle={`${deaspProjects.length} total`} icon={<FolderKanban className="w-6 h-6" />} color="yellow" />
+          </>
+        )}
+        <StatCard title="Total Tracked" value={`${formatTonnes(totalSMEEmissions + totalDEASPEmissions)} tCO2e`}
+          subtitle="All modules combined" icon={<BarChart3 className="w-6 h-6" />} color="blue" />
       </div>
 
       {/* Split View */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Clients */}
-        <div className="bg-surface-card rounded-xl border border-surface-border">
-          <div className="flex items-center justify-between p-5 border-b border-surface-border">
-            <h3 className="text-lg font-semibold text-white">Clients</h3>
-            <button onClick={() => navigate('/clients')}
-              className="flex items-center space-x-1 text-sm text-brand-yellow hover:text-brand-yellow/80 transition-colors">
-              <Plus className="w-4 h-4" /><span>Add Client</span>
-            </button>
+      <div className={`grid grid-cols-1 ${showSME && showDEASP ? 'lg:grid-cols-2' : ''} gap-6`}>
+        {/* SME Projects */}
+        {showSME && (
+          <div className="bg-surface-card rounded-xl border border-surface-border">
+            <div className="flex items-center justify-between p-5 border-b border-surface-border">
+              <div className="flex items-center space-x-2">
+                <Building2 className="w-5 h-5 text-brand-green" />
+                <h3 className="text-lg font-semibold text-white">SME Projects</h3>
+              </div>
+              <button onClick={() => navigate('/sme-projects')}
+                className="text-sm text-brand-green hover:text-brand-green/80">View All</button>
+            </div>
+            <div className="divide-y divide-surface-border">
+              {smeProjects.map((project) => (
+                <div key={project.id} onClick={() => navigate(`/sme-projects/${project.id}`)}
+                  className="flex items-center justify-between p-4 hover:bg-surface-hover cursor-pointer transition-colors group">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center space-x-3">
+                      <h4 className="text-sm font-semibold text-white truncate">{project.company_name}</h4>
+                      <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[project.status]}`}>
+                        {project.status.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-3 mt-1">
+                      <span className="text-xs text-gray-500 font-mono">{project.project_id}</span>
+                      <span className="text-xs text-gray-400">{formatTonnes(project.total_co2e)} tCO2e</span>
+                    </div>
+                    <div className="flex items-center space-x-2 mt-1.5">
+                      <div className="flex-1 h-1 bg-surface-hover rounded-full overflow-hidden max-w-[120px]">
+                        <div className="h-full rounded-full bg-brand-green" style={{ width: `${project.completeness}%` }} />
+                      </div>
+                      <span className="text-[10px] text-gray-500">{project.completeness}%</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-brand-green transition-colors" />
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="divide-y divide-surface-border">
-            {clients.map((client) => (
-              <div key={client.id} onClick={() => navigate(`/clients/${client.id}`)}
-                className="flex items-center justify-between p-4 hover:bg-surface-hover cursor-pointer transition-colors group">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center space-x-3">
+        )}
+
+        {/* DEASP Projects */}
+        {showDEASP && (
+          <div className="bg-surface-card rounded-xl border border-surface-border">
+            <div className="flex items-center justify-between p-5 border-b border-surface-border">
+              <div className="flex items-center space-x-2">
+                <Anchor className="w-5 h-5 text-[#6060FF]" />
+                <h3 className="text-lg font-semibold text-white">DEASP Port Authorities</h3>
+              </div>
+              <button onClick={() => navigate('/deasp')}
+                className="text-sm text-[#6060FF] hover:text-[#6060FF]/80">DEASP Workflow</button>
+            </div>
+            <div className="divide-y divide-surface-border">
+              {clients.map((client) => (
+                <div key={client.id} onClick={() => navigate(`/clients/${client.id}`)}
+                  className="p-4 hover:bg-surface-hover cursor-pointer transition-colors group">
+                  <div className="flex items-center justify-between mb-2">
                     <h4 className="text-sm font-semibold text-white truncate">{client.name}</h4>
                     <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_COLORS[client.status]}`}>
                       {client.status}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">{formatTonnes(client.total_co2e_tonnes)} tCO2e total</p>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button onClick={(e) => { e.stopPropagation(); }}
-                    className="p-1 text-gray-500 hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <MoreHorizontal className="w-4 h-4" />
-                  </button>
-                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-[#6060FF] transition-colors" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Right: DEASP Projects */}
-        <div className="bg-surface-card rounded-xl border border-surface-border">
-          <div className="flex items-center justify-between p-5 border-b border-surface-border">
-            <h3 className="text-lg font-semibold text-white">DEASP Projects</h3>
-            <button onClick={() => navigate('/deasp-projects')}
-              className="flex items-center space-x-1 text-sm text-brand-yellow hover:text-brand-yellow/80 transition-colors">
-              <Plus className="w-4 h-4" /><span>New Project</span>
-            </button>
-          </div>
-          <div className="divide-y divide-surface-border">
-            {projects.map((project) => (
-              <div key={project.id} onClick={() => navigate(`/deasp-projects/${project.id}`)}
-                className="p-4 hover:bg-surface-hover cursor-pointer transition-colors group">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-sm font-semibold text-white truncate">{project.name}</h4>
-                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${STATUS_COLORS[project.status]}`}>
-                    {project.status.replace('_', ' ')}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-400 mb-3">
-                  {getClientName(project.client_id)} &middot; {formatTonnes(project.current_emissions_tonnes)} tCO2e
-                </p>
-                <div className="flex items-center space-x-3">
-                  <div className="flex-1 h-2 bg-surface-hover rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-500"
-                      style={{
-                        width: `${Math.min(100, project.progress_pct)}%`,
-                        background: project.progress_pct >= 100 ? '#00FF80'
-                          : project.progress_pct > 50 ? 'linear-gradient(90deg, #0000FF, #4040FF)' : '#FEC500',
-                      }} />
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="flex items-center space-x-1">
+                      <Flame className="w-3 h-3 text-brand-green" />
+                      <span className="text-gray-400">{formatTonnes(client.total_scope1_tonnes)} t</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <Zap className="w-3 h-3 text-[#6060FF]" />
+                      <span className="text-gray-400">{formatTonnes(client.total_scope2_tonnes)} t</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <Link2 className="w-3 h-3 text-brand-yellow" />
+                      <span className="text-gray-400">{formatTonnes(client.total_scope3_tonnes)} t</span>
+                    </div>
                   </div>
-                  <span className="text-xs font-medium text-gray-300 w-10 text-right">
-                    {project.progress_pct.toFixed(0)}%
-                  </span>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
