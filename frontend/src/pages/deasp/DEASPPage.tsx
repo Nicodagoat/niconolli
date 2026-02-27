@@ -1,21 +1,20 @@
 import { useState } from 'react';
-import { Anchor, Ship, FileText, Calculator, BarChart3, Download, Bell } from 'lucide-react';
+import { Anchor, Ship, Factory, Calculator, Download, Bell } from 'lucide-react';
 import DEASPDashboard from '../../components/deasp/dashboard/DEASPDashboard';
 import ShipImportStep from '../../components/deasp/workflow/ShipImportStep';
-import QuestionnaireStep from '../../components/deasp/workflow/QuestionnaireStep';
+import ConcessionaireDataStep from '../../components/deasp/workflow/ConcessionaireDataStep';
 import CalculationStep from '../../components/deasp/workflow/CalculationStep';
 import ReportStep from '../../components/deasp/workflow/ReportStep';
 import FactorNotifications from '../../components/deasp/dashboard/FactorNotifications';
 
 type Tab = 'dashboard' | 'workflow';
-type WorkflowStep = 1 | 2 | 3 | 4 | 5;
+type WorkflowStep = 1 | 2 | 3 | 4;
 
 const STEPS = [
-  { num: 1, label: 'Import Navi', icon: Ship, desc: 'Carica dati navi dal file Excel/CSV' },
-  { num: 2, label: 'Questionari', icon: FileText, desc: 'Gestisci questionari concessionari' },
-  { num: 3, label: 'Calcolo', icon: Calculator, desc: 'Calcola emissioni con fattori auto-aggiornanti' },
-  { num: 4, label: 'Dashboard', icon: BarChart3, desc: 'Visualizza risultati e indicatori' },
-  { num: 5, label: 'Report DEASP', icon: Download, desc: 'Genera output conformi al DEASP' },
+  { num: 1, label: 'Import Navi', icon: Ship, desc: 'Carica dati navi dal file CSV' },
+  { num: 2, label: 'Dati Concessionari', icon: Factory, desc: 'Inserisci consumi energetici concessionari' },
+  { num: 3, label: 'Calcolo Emissioni', icon: Calculator, desc: 'Calcola emissioni con fattori EMEP/EEA e ISPRA' },
+  { num: 4, label: 'Report DEASP', icon: Download, desc: 'Genera e scarica output conformi al DEASP' },
 ];
 
 export default function DEASPPage() {
@@ -72,7 +71,7 @@ export default function DEASPPage() {
             activeTab === 'workflow' ? 'bg-surface-card text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'
           }`}
         >
-          Workflow (5 Step)
+          Workflow (4 Step)
         </button>
       </div>
 
@@ -125,7 +124,7 @@ export default function DEASPPage() {
           <div className="bg-surface-card rounded-xl border border-surface-border p-6">
             {currentStep === 1 && <ShipImportStep onNext={() => setCurrentStep(2)} />}
             {currentStep === 2 && (
-              <QuestionnaireStep
+              <ConcessionaireDataStep
                 onNext={() => setCurrentStep(3)}
                 onBack={() => setCurrentStep(1)}
               />
@@ -137,30 +136,9 @@ export default function DEASPPage() {
               />
             )}
             {currentStep === 4 && (
-              <DEASPDashboard embedded />
-            )}
-            {currentStep === 5 && (
-              <ReportStep onBack={() => setCurrentStep(4)} />
+              <ReportStep onBack={() => setCurrentStep(3)} />
             )}
           </div>
-
-          {/* Navigation */}
-          {currentStep === 4 && (
-            <div className="flex justify-between">
-              <button
-                onClick={() => setCurrentStep(3)}
-                className="px-4 py-2 text-sm border border-surface-border text-gray-300 rounded-lg hover:bg-surface-hover"
-              >
-                Indietro
-              </button>
-              <button
-                onClick={() => setCurrentStep(5)}
-                className="px-4 py-2 text-sm primary-gradient text-white rounded-lg hover:opacity-90"
-              >
-                Genera Report DEASP
-              </button>
-            </div>
-          )}
         </div>
       )}
     </div>
