@@ -75,6 +75,8 @@ function defaultState() {
     deviceId: getOrCreateDeviceId(),
     pairedPeerId: null,
     pendingSync: [],
+    activeVacation: null,
+    vacations: [],
     settings: {
       currency: '€',
       users: [{id:'user1', name:'Alex'}, {id:'user2', name:'Jordan'}],
@@ -118,6 +120,8 @@ function loadState() {
       if (!state.settings.fixedCosts) state.settings.fixedCosts = [];
       if (!state.pendingSync) state.pendingSync = [];
       if (!state.deviceId) state.deviceId = getOrCreateDeviceId();
+      if (!state.vacations) state.vacations = [];
+      if (state.activeVacation === undefined) state.activeVacation = null;
       return true;
     }
   } catch(e) { console.warn('Load error', e); }
@@ -636,6 +640,7 @@ function updateIouPreview() {
 function renderExpenseEntry() {
   renderMiniStatus();
   renderDueSoonBar();
+  renderVacationBanner();
   renderCategoryPills();
   updateIouPreview();
 
@@ -727,6 +732,7 @@ function submitExpense() {
     userId: me,
     deviceId: state.deviceId,
     timestamp: Date.now(),
+    vacationId: state.activeVacation ? state.activeVacation.id : null,
   };
 
   // Add to transactions
@@ -1169,6 +1175,31 @@ function renderProfileScreen() {
     '<button class="btn-danger" id="reset-month-btn">Reset This Month</button>' +
     '</div></div>' +
 
+    // Vacation Mode
+    '<div class="profile-section">' +
+    '<h3>Vacation Mode</h3>' +
+    (state.activeVacation
+      ? '<div class="vac-active-card">' +
+        '<span>🏖️ ' + escapeHtml(state.activeVacation.name) + '</span>' +
+        '<span class="vac-active-badge">ACTIVE</span>' +
+        '</div>' +
+        '<p class="setup-subtitle" style="margin:8px 0 10px">All expenses are being tracked for this vacation.</p>' +
+        '<button class="btn-primary" id="end-vac-btn">End Vacation &amp; Settle</button>'
+      : '<p class="setup-subtitle" style="margin-bottom:10px">Track expenses during a trip and see who owes what at the end.</p>' +
+        '<input class="partner-name-input" id="vac-name-input" placeholder="Trip name (e.g. Paris 2025)" maxlength="40" style="margin-bottom:8px">' +
+        '<button class="btn-primary" id="start-vac-btn">Start Vacation Mode</button>') +
+    (state.vacations.length
+      ? '<div class="section-title" style="font-size:13px;margin-top:16px;margin-bottom:8px">Past Vacations</div>' +
+        state.vacations.map(v => {
+          const d = new Date(v.endDate || v.startDate).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+          return '<div class="archive-row vac-history-row" data-vacid="' + v.id + '">' +
+            '<span>🏖️ ' + escapeHtml(v.name) + '</span>' +
+            '<span class="archive-amount">' + d + '</span>' +
+            '</div>';
+        }).join('')
+      : '') +
+    '</div>' +
+
     '</div>';
 
   // Bind events
@@ -1253,6 +1284,26 @@ function renderProfileScreen() {
     saveState();
     showToast('Month reset', 'success');
     showScreen('expense-entry');
+  });
+
+  // Vacation bindings
+  const startVacBtn = document.getElementById('start-vac-btn');
+  if (startVacBtn) startVacBtn.addEventListener('click', () => {
+    const input = document.getElementById('vac-name-input');
+    startVacation(input ? input.value : '');
+  });
+
+  const endVacBtn = document.getElementById('end-vac-btn');
+  if (endVacBtn) endVacBtn.addEventListener('click', () => {
+    if (!confirm('End vacation and see the settlement?')) return;
+    endVacation();
+  });
+
+  screen.querySelectorAll('.vac-history-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const vac = state.vacations.find(v => v.id === row.dataset.vacid);
+      if (vac) showVacationSummaryModal(vac);
+    });
   });
 }
 
@@ -1464,6 +1515,165 @@ function nextWizardStep() {
   wizardStep++;
   if (wizardStep >= WIZARD_STEPS) wizardStep = WIZARD_STEPS - 1;
   renderWizardStep();
+}
+
+/* ─── VACATION MODE ─── */
+function renderVacationBanner() {
+  const banner = document.getElementById('vacation-banner');
+  if (!banner) return;
+  if (state.activeVacation) {
+    banner.hidden = false;
+    const nameEl = document.getElementById('vac-banner-name');
+    if (nameEl) nameEl.textContent = '🏖️ ' + state.activeVacation.name;
+    const endBtn = document.getElementById('vac-end-quick-btn');
+    if (endBtn) {
+      endBtn.onclick = () => {
+        if (!confirm('End vacation and see the settlement?')) return;
+        endVacation();
+      };
+    }
+  } else {
+    banner.hidden = true;
+  }
+}
+
+function startVacation(name) {
+  if (!name || !name.trim()) return showToast('Enter a vacation name', 'error');
+  state.activeVacation = {
+    id: 'vac_' + generateId(),
+    name: name.trim(),
+    startDate: new Date().toISOString(),
+  };
+  saveState();
+  renderProfileScreen();
+  renderExpenseEntry();
+  showToast('Vacation mode started! 🏖️', 'success');
+}
+
+function endVacation() {
+  if (!state.activeVacation) return;
+  const vacation = { ...state.activeVacation, endDate: new Date().toISOString() };
+  const txs = getVacationExpenses(vacation.id);
+  vacation.txCount = txs.length;
+  state.vacations.unshift(vacation);
+  state.activeVacation = null;
+  saveState();
+  showVacationSummaryModal(vacation);
+  renderExpenseEntry();
+}
+
+function getVacationExpenses(vacationId) {
+  const txs = [];
+  Object.values(state.months).forEach(month => {
+    month.transactions.forEach(tx => {
+      if (tx.vacationId === vacationId) txs.push(tx);
+    });
+  });
+  txs.sort((a, b) => new Date(a.date) - new Date(b.date));
+  return txs;
+}
+
+function getVacationSettlement(vacationId) {
+  const txs = getVacationExpenses(vacationId);
+  const user1 = state.settings.users.find(u => u.id === 'user1') || {id:'user1', name:'User 1'};
+  const user2 = state.settings.users.find(u => u.id === 'user2') || {id:'user2', name:'User 2'};
+
+  let user1Paid = 0;
+  let user2Paid = 0;
+
+  txs.forEach(tx => {
+    const amount = tx.amount;
+    const isUser1 = tx.userId === 'user1';
+    if (tx.paidBy === 'me') {
+      if (isUser1) user1Paid += amount; else user2Paid += amount;
+    } else if (tx.paidBy === 'partner') {
+      if (isUser1) user2Paid += amount; else user1Paid += amount;
+    } else if (tx.paidBy === 'both') {
+      const ratio = tx.splitRatio != null ? tx.splitRatio : 0.5;
+      if (isUser1) { user1Paid += amount * ratio; user2Paid += amount * (1 - ratio); }
+      else { user2Paid += amount * ratio; user1Paid += amount * (1 - ratio); }
+    } else {
+      if (isUser1) user1Paid += amount; else user2Paid += amount;
+    }
+  });
+
+  const totalSpent = user1Paid + user2Paid;
+  const fairShare = totalSpent / 2;
+  const net = user1Paid - fairShare; // positive → user2 owes user1; negative → user1 owes user2
+
+  return { user1, user2, user1Paid, user2Paid, totalSpent, fairShare, net, txs };
+}
+
+function showVacationSummaryModal(vacation) {
+  const s = getVacationSettlement(vacation.id);
+  const currency = state.settings.currency;
+  const startDate = new Date(vacation.startDate).toLocaleDateString('en-US', {month:'short', day:'numeric'});
+  const endDate   = vacation.endDate
+    ? new Date(vacation.endDate).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
+    : 'Ongoing';
+
+  let settlementHtml = '';
+  if (s.totalSpent === 0) {
+    settlementHtml = '<div class="vac-settlement-empty">No expenses logged during this vacation.</div>';
+  } else {
+    const owes = s.net > 0.005
+      ? escapeHtml(s.user2.name) + ' owes ' + escapeHtml(s.user1.name) + ' ' + fmt(Math.abs(s.net), currency)
+      : s.net < -0.005
+        ? escapeHtml(s.user1.name) + ' owes ' + escapeHtml(s.user2.name) + ' ' + fmt(Math.abs(s.net), currency)
+        : "You're even! 🎉";
+
+    settlementHtml =
+      '<div class="vac-totals-row">' +
+        '<div class="vac-person-total">' +
+          '<div class="vac-person-name">' + escapeHtml(s.user1.name) + '</div>' +
+          '<div class="vac-person-paid">' + fmt(s.user1Paid, currency) + '</div>' +
+          '<div class="vac-person-label">paid</div>' +
+        '</div>' +
+        '<div class="vac-vs">⟺</div>' +
+        '<div class="vac-person-total">' +
+          '<div class="vac-person-name">' + escapeHtml(s.user2.name) + '</div>' +
+          '<div class="vac-person-paid">' + fmt(s.user2Paid, currency) + '</div>' +
+          '<div class="vac-person-label">paid</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="vac-settlement-box">' +
+        '<div class="vac-settle-label">Settlement</div>' +
+        '<div class="vac-settle-amount">' + owes + '</div>' +
+        '<div class="vac-settle-sub">Total: ' + fmt(s.totalSpent, currency) + ' · Fair share: ' + fmt(s.fairShare, currency) + ' each</div>' +
+      '</div>';
+  }
+
+  const txListHtml = s.txs.length
+    ? '<div class="vac-tx-list">' +
+      s.txs.map(tx => {
+        const icon = tx.isFixed ? '🔒' : (VAR_CATEGORIES.find(c => c.name === tx.category) || {icon:'📦'}).icon;
+        const d = new Date(tx.date).toLocaleDateString('en-US', {month:'short', day:'numeric'});
+        const paidLabel = tx.paidBy === 'me'
+          ? (state.settings.users.find(u => u.id === tx.userId) || {name:'?'}).name
+          : tx.paidBy === 'partner'
+            ? (state.settings.users.find(u => u.id !== tx.userId) || {name:'?'}).name
+            : 'Split';
+        return '<div class="vac-tx-item">' +
+          '<span class="vac-tx-icon">' + icon + '</span>' +
+          '<div class="vac-tx-details">' +
+            '<span class="vac-tx-cat">' + escapeHtml(tx.category) + (tx.note ? ' · ' + escapeHtml(tx.note) : '') + '</span>' +
+            '<span class="vac-tx-who">' + paidLabel + ' · ' + d + '</span>' +
+          '</div>' +
+          '<span class="vac-tx-amt">' + fmt(tx.amount, currency) + '</span>' +
+          '</div>';
+      }).join('') +
+      '</div>'
+    : '';
+
+  showModal('<div class="detail-modal">' +
+    '<div class="modal-handle"></div>' +
+    '<h3>🏖️ ' + escapeHtml(vacation.name) + '</h3>' +
+    '<div class="vac-dates">' + startDate + ' – ' + endDate + ' · ' + s.txs.length + ' expense' + (s.txs.length !== 1 ? 's' : '') + '</div>' +
+    settlementHtml +
+    (s.txs.length > 0
+      ? '<div class="section-title" style="font-size:14px;margin-top:16px;margin-bottom:8px">Expenses</div>' + txListHtml
+      : '') +
+    '</div>');
 }
 
 /* ─── ADD FIXED COST MODAL ─── */
