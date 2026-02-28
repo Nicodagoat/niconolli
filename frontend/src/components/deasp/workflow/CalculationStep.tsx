@@ -79,13 +79,15 @@ function calculateShipEmissions(ship: ShipEntry): ShipResult {
   const hotelling = ship.hours * (HOTELLING_EF[gtClass] || 0.52) * catAdj;
   const maneuver = ship.maneuvers * (MANEUVER_EF[gtClass] || 1.45) * catAdj;
 
+  const h = Math.round(hotelling * 100) / 100;
+  const m = Math.round(maneuver * 100) / 100;
   return {
     imo: ship.imo,
     name: ship.name,
     port: ship.port,
-    hotelling_tco2: Math.round(hotelling * 100) / 100,
-    maneuver_tco2: Math.round(maneuver * 100) / 100,
-    total_tco2: Math.round((hotelling + maneuver) * 100) / 100,
+    hotelling_tco2: h,
+    maneuver_tco2: m,
+    total_tco2: Math.round((h + m) * 100) / 100,
   };
 }
 

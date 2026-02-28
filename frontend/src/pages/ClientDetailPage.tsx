@@ -53,13 +53,19 @@ function saveActivities(clientId: string, activities: ActivityEntry[]) {
   localStorage.setItem(STORAGE_KEY_PREFIX + clientId, JSON.stringify(activities));
 }
 
-function generateCSV(headers: string[], rows: string[][]): string {
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-  return [headers.map(escape).join(','), ...rows.map(r => r.map(escape).join(','))].join('\n');
+function generateCSV(headers: string[], rows: (string | undefined)[][]): string {
+  const escape = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
+  const colCount = headers.length;
+  const padRow = (r: (string | undefined)[]) => {
+    const padded = [...r];
+    while (padded.length < colCount) padded.push('');
+    return padded.map(v => v ?? '');
+  };
+  return '\ufeff' + [headers.map(escape).join(','), ...rows.map(r => padRow(r).map(escape).join(','))].join('\n');
 }
 
 function downloadFile(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
+  const blob = new Blob([content], { type: mimeType + ';charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -82,7 +88,20 @@ export default function ClientDetailPage() {
     scope: 'scope_1', category: '', description: '', value: '', unit: 'kWh', ef_source: 'ISPRA 2024', co2e_factor: '0.00026',
   });
 
-  const client = id ? DEMO_MAP[id] : undefined;
+  // Load client: try localStorage first, then fall back to DEMO_MAP
+  const client = (() => {
+    if (!id) return undefined;
+    try {
+      const saved = localStorage.getItem('clients');
+      if (saved) {
+        const clients: Client[] = JSON.parse(saved);
+        const found = clients.find(c => c.id === id);
+        if (found) return found;
+      }
+    } catch { /* ignore */ }
+    return DEMO_MAP[id];
+  })();
+
   if (!client) {
     return (
       <div className="flex items-center justify-center h-64">

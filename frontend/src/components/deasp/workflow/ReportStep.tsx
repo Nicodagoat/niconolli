@@ -53,12 +53,19 @@ function loadConcessionaires(): ConcessionaireEntry[] {
 }
 
 function generateCSV(headers: string[], rows: string[][]): string {
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-  return [headers.map(escape).join(','), ...rows.map(r => r.map(escape).join(','))].join('\n');
+  const escape = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
+  const colCount = headers.length;
+  // Pad rows to header column count for strict CSV compliance
+  const padRow = (r: string[]) => {
+    const padded = [...r];
+    while (padded.length < colCount) padded.push('');
+    return padded;
+  };
+  return '\ufeff' + [headers.map(escape).join(','), ...rows.map(r => padRow(r).map(escape).join(','))].join('\n');
 }
 
 function downloadFile(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
+  const blob = new Blob([content], { type: mimeType + ';charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -189,7 +196,7 @@ export default function ReportStep({ onBack }: Props) {
         lines.push('"Metodologia","EMEP/EEA Guidebook 2023 - Tier 2 approach"');
         lines.push('"GWP","IPCC AR6 (2021)"');
         lines.push('"Fattori nazionali","ISPRA 2024, DEFRA 2024"');
-        downloadFile(lines.join('\n'), `DEASP_Report_Completo_${now.slice(0, 10)}.csv`, 'text/csv');
+        downloadFile('\ufeff' + lines.join('\n'), `DEASP_Report_Completo_${now.slice(0, 10)}.csv`, 'text/csv');
       }
 
       if (id === 'pdf') {

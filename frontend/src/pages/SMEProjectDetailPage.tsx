@@ -275,17 +275,20 @@ const DEFAULT_SCOPE3: DataEntry[] = [
     value: 250000, unit: 'km', fuel_type: 'commuting_car', ef_value: 0.000171, ef_source: 'ISPRA 2024', co2e_tonnes: 42.75 },
 ];
 
-function generateCSV(headers: string[], rows: string[][]): string {
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-  const lines = [headers.map(escape).join(',')];
-  for (const row of rows) {
-    lines.push(row.map(escape).join(','));
-  }
-  return lines.join('\n');
+function generateCSV(headers: string[], rows: (string | undefined)[][]): string {
+  const escape = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
+  const colCount = headers.length;
+  const padRow = (r: (string | undefined)[]) => {
+    const padded = [...r];
+    while (padded.length < colCount) padded.push('');
+    return padded.map(v => v ?? '');
+  };
+  // BOM for Excel UTF-8 compatibility with Italian characters
+  return '\ufeff' + [headers.map(escape).join(','), ...rows.map(r => padRow(r).map(escape).join(','))].join('\n');
 }
 
 function downloadFile(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
+  const blob = new Blob([content], { type: mimeType + ';charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -509,15 +512,21 @@ export default function SMEProjectDetailPage() {
 
   const exportCDPCSV = () => {
     const headers = ['CDP Category', 'Scope', 'Emissions (tCO2e)', 'Methodology', 'Source', 'Verification Status'];
-    const rows = [
-      ['C6.1 - Scope 1', 'Scope 1', scope1Total.toFixed(2), 'GHG Protocol', 'ISPRA/DEFRA/IPCC', 'Not verified'],
-      ['C6.3 - Scope 2 (location)', 'Scope 2', scope2Total.toFixed(2), 'GHG Protocol', 'ISPRA 2024', 'Not verified'],
-      ['C6.5 - Scope 3 Cat 1', 'Scope 3', scope3Data.filter(e => e.category === 'cat1').reduce((s, e) => s + (e.co2e_tonnes || 0), 0).toFixed(2), 'Spend-based', 'EEIO 2024', 'Not verified'],
-      ['C6.5 - Scope 3 Cat 6', 'Scope 3', scope3Data.filter(e => e.category === 'cat6').reduce((s, e) => s + (e.co2e_tonnes || 0), 0).toFixed(2), 'Distance-based', 'DEFRA 2024', 'Not verified'],
-      ['C6.5 - Scope 3 Cat 7', 'Scope 3', scope3Data.filter(e => e.category === 'cat7').reduce((s, e) => s + (e.co2e_tonnes || 0), 0).toFixed(2), 'Distance-based', 'ISPRA 2024', 'Not verified'],
-      ['', '', '', '', '', ''],
-      ['TOTAL', 'All', grandTotal.toFixed(2), '', '', ''],
-    ];
+    const rows: string[][] = [];
+    rows.push(['C6.1 - Scope 1', 'Scope 1', scope1Total.toFixed(2), 'GHG Protocol', 'ISPRA/DEFRA/IPCC', 'Not verified']);
+    rows.push(['C6.3 - Scope 2 (location)', 'Scope 2', scope2Total.toFixed(2), 'GHG Protocol', 'ISPRA 2024', 'Not verified']);
+    // Dynamically include all active Scope 3 categories
+    for (const cat of SCOPE3_CATEGORIES) {
+      const catTotal = scope3Data.filter(e => e.category === cat.id).reduce((s, e) => s + (e.co2e_tonnes || 0), 0);
+      if (catTotal > 0) {
+        const method = cat.id.match(/cat[12]/) ? 'Spend-based' : cat.id.match(/cat[67]/) ? 'Distance-based' : cat.id.match(/cat[45]/) ? 'Weight-based' : 'Hybrid';
+        const source = cat.fuelTypes.some(ft => ft.startsWith('spend_') || ft.startsWith('invest_') || ft.startsWith('franchise_')) ? 'EEIO 2024' :
+                       cat.fuelTypes.some(ft => ft.startsWith('commuting_')) ? 'ISPRA 2024' : 'DEFRA 2024';
+        rows.push([`C6.5 - Scope 3 ${cat.label}`, 'Scope 3', catTotal.toFixed(2), method, source, 'Not verified']);
+      }
+    }
+    rows.push(['', '', '', '', '', '']);
+    rows.push(['TOTAL', 'All', grandTotal.toFixed(2), '', '', '']);
     const csv = generateCSV(headers, rows);
     downloadFile(csv, `${project?.project_id || 'SME'}_CDP_Report.csv`, 'text/csv');
   };
@@ -532,7 +541,6 @@ export default function SMEProjectDetailPage() {
       scope3byCat[cat.id] = scope3Data.filter(e => e.category === cat.id).reduce((s, e) => s + (e.co2e_tonnes || 0), 0);
     }
     const scope3Significant = Object.entries(scope3byCat).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
-    const intensityRev = project ? grandTotal / 1 : 0; // placeholder - no revenue data
 
     const lines: string[] = [];
     lines.push('='.repeat(70));
@@ -640,7 +648,7 @@ export default function SMEProjectDetailPage() {
     lines.push('');
     lines.push('='.repeat(70));
     lines.push('Fine Report ESRS E1');
-    downloadFile(lines.join('\n'), `${project?.project_id || 'SME'}_ESRS_E1_Report_${year}.txt`, 'text/plain');
+    downloadFile('\ufeff' + lines.join('\n'), `${project?.project_id || 'SME'}_ESRS_E1_Report_${year}.txt`, 'text/plain');
   };
 
   // Full CSRD / ESRS E sustainability report (all E pillars)
@@ -824,7 +832,7 @@ export default function SMEProjectDetailPage() {
 
   const scope1CatCount = new Set(scope1Data.map(d => d.category)).size;
   const scope3CatCount = new Set(scope3Data.map(d => d.category)).size;
-  const scope3Total8 = SCOPE3_CATEGORIES.length;
+  const scope3TotalCats = SCOPE3_CATEGORIES.length;
 
   return (
     <div className="space-y-6">
@@ -1060,11 +1068,11 @@ export default function SMEProjectDetailPage() {
               );
             })}
 
-            {scope3CatCount < scope3Total8 && (
+            {scope3CatCount < scope3TotalCats && (
               <div className="flex items-center space-x-2 p-3 bg-brand-yellow/5 border border-brand-yellow/20 rounded-lg">
                 <AlertTriangle className="w-4 h-4 text-brand-yellow" />
                 <span className="text-xs text-brand-yellow">
-                  {scope3Total8 - scope3CatCount} of {scope3Total8} Scope 3 categories have no data. Consider at least Cat 1, 5, 6, 7 for completeness.
+                  {scope3TotalCats - scope3CatCount} of {scope3TotalCats} Scope 3 categories have no data. Consider at least Cat 1, 5, 6, 7 for completeness.
                 </span>
               </div>
             )}
