@@ -1184,10 +1184,10 @@ function renderProfileScreen() {
         '<span class="vac-active-badge">ACTIVE</span>' +
         '</div>' +
         '<p class="setup-subtitle" style="margin:8px 0 10px">All expenses are being tracked for this vacation.</p>' +
-        '<button class="btn-primary" id="end-vac-btn">End Vacation &amp; Settle</button>'
+        '<button class="btn-primary" id="end-vac-btn" style="display:block;width:100%">End Vacation &amp; Settle</button>'
       : '<p class="setup-subtitle" style="margin-bottom:10px">Track expenses during a trip and see who owes what at the end.</p>' +
         '<input class="partner-name-input" id="vac-name-input" placeholder="Trip name (e.g. Paris 2025)" maxlength="40" style="margin-bottom:8px">' +
-        '<button class="btn-primary" id="start-vac-btn">Start Vacation Mode</button>') +
+        '<button class="btn-primary" id="start-vac-btn" style="display:block;width:100%">Start Vacation Mode</button>') +
     (state.vacations.length
       ? '<div class="section-title" style="font-size:13px;margin-top:16px;margin-bottom:8px">Past Vacations</div>' +
         state.vacations.map(v => {
@@ -1559,7 +1559,8 @@ function endVacation() {
   state.activeVacation = null;
   saveState();
   showVacationSummaryModal(vacation);
-  renderExpenseEntry();
+  renderExpenseEntry(); // hide banner on add screen
+  if (currentScreen === 'profile-screen') renderProfileScreen(); // refresh profile if visible
 }
 
 function getVacationExpenses(vacationId) {
