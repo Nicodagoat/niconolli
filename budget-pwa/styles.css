@@ -844,6 +844,26 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
 .search-input:focus { border-color: var(--space-indigo); }
 .search-input::placeholder { color: var(--lilac-ash); }
 
+/* Month navigation */
+.month-nav {
+  display: flex; gap: 6px; padding: 0 16px 8px;
+  overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.month-nav::-webkit-scrollbar { display: none; }
+.month-nav-btn {
+  padding: 6px 14px; border-radius: 16px;
+  border: 2px solid rgba(154,140,152,0.25);
+  background: transparent; font-size: 12px; font-weight: 600;
+  color: var(--lilac-ash); white-space: nowrap; flex-shrink: 0; transition: all 0.15s;
+}
+.month-nav-btn.active {
+  background: var(--space-indigo); border-color: var(--space-indigo); color: var(--white);
+}
+.month-nav-btn:active { opacity: 0.75; }
+
+/* Vacation tag on tx */
+.tx-vac-tag { font-size: 12px; margin-left: 4px; vertical-align: middle; }
+
 #history-list { padding: 0 16px 24px; }
 .history-group { margin-bottom: 4px; }
 .history-date { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--lilac-ash); padding: 14px 0 4px; }

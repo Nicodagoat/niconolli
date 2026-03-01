@@ -629,11 +629,15 @@ function updateIouPreview() {
     return;
   }
   preview.hidden = false;
-  const myShare = (amount * splitRatio / 100).toFixed(2);
-  const partnerShare = (amount * (100 - splitRatio) / 100).toFixed(2);
+  const myShare = amount * splitRatio / 100;
+  const netOwed = Math.abs(myShare - amount / 2);
   const partnerName = getPartnerName();
   const myName = getMyName();
-  preview.textContent = myName + ' owes ' + fmt(myShare) + ' · ' + partnerName + ' owes ' + fmt(partnerShare);
+  if (splitRatio > 50) {
+    preview.textContent = partnerName + ' will owe ' + myName + ' ' + fmt(netOwed);
+  } else {
+    preview.textContent = myName + ' will owe ' + partnerName + ' ' + fmt(netOwed);
+  }
 }
 
 /* ─── EXPENSE ENTRY SCREEN ─── */
@@ -750,33 +754,29 @@ function submitExpense() {
     if (dueSoonBtn) dueSoonBtn.classList.add('paid');
   }
 
-  // Create IOU if split unevenly
+  // Create IOU if split unevenly: store the NET difference from a fair 50/50 split
   if (paidBy === 'both' && splitRatio !== 50) {
     const myShare = amount * (splitRatio / 100);
-    const partnerShare = amount * ((100 - splitRatio) / 100);
+    const netOwed = Math.abs(myShare - amount / 2); // e.g. 100 at 60/40 → net = 10
     const partnerName = getPartnerName();
     const myName = getMyName();
-    // If I paid more than my share, partner owes me
+    const partnerId = state.settings.users.find(u => u.id !== me).id;
     const iou = {
       id: generateId(),
       txId: tx.id,
-      from: state.settings.users.find(u => u.id !== me).id,
-      to: me,
-      fromName: partnerName,
-      toName: myName,
-      amount: Math.abs(partnerShare - myShare) / 2,
       description: note || selectedCategory,
       date: tx.date,
       settled: false,
+      amount: netOwed,
     };
     if (splitRatio > 50) {
-      iou.amount = partnerShare; // partner owes their full share to me (I paid all)
-      iou.from = state.settings.users.find(u => u.id !== me).id;
-      iou.to = me;
+      // I paid more than my fair share → partner owes me
+      iou.from = partnerId; iou.fromName = partnerName;
+      iou.to = me;          iou.toName = myName;
     } else {
-      iou.amount = myShare;
-      iou.from = me;
-      iou.to = state.settings.users.find(u => u.id !== me).id;
+      // Partner paid more → I owe partner
+      iou.from = me;        iou.fromName = myName;
+      iou.to = partnerId;   iou.toName = partnerName;
     }
     month.ious.push(iou);
   }
@@ -1005,15 +1005,35 @@ function renderHistoryScreen() {
   if (!screen) return;
 
   const allMonths = Object.keys(state.months).sort().reverse();
+  // Ensure currentHistoryMonth is valid
+  if (!allMonths.includes(currentHistoryMonth)) currentHistoryMonth = allMonths[0] || currentMonthKey;
+
   const month = state.months[currentHistoryMonth];
   const txs = month ? [...month.transactions].reverse() : [];
+
+  const monthNavHtml = allMonths.length > 1
+    ? '<div class="month-nav">' +
+      allMonths.map(mk => {
+        const label = new Date(mk + '-15').toLocaleDateString('en-US', {month:'short', year:'numeric'});
+        return '<button class="month-nav-btn' + (mk === currentHistoryMonth ? ' active' : '') + '" data-mk="' + mk + '">' + label + '</button>';
+      }).join('') +
+      '</div>'
+    : '';
 
   screen.innerHTML =
     '<div class="history-header">' +
     '<h2>History</h2>' +
     '<input type="search" class="search-input" id="history-search" placeholder="Search…" autocomplete="off">' +
     '</div>' +
+    monthNavHtml +
     '<div id="history-list"></div>';
+
+  screen.querySelectorAll('.month-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentHistoryMonth = btn.dataset.mk;
+      renderHistoryScreen();
+    });
+  });
 
   renderHistoryList(txs, '');
 
@@ -1054,10 +1074,11 @@ function renderHistoryList(txs, query) {
     groups[day].forEach(tx => {
       const icon = tx.isFixed ? '🔒' : (VAR_CATEGORIES.find(c=>c.name===tx.category)||{icon:'📦'}).icon;
       const splitTag = tx.paidBy === 'both' ? '<span class="tx-split-tag">Split</span>' : (tx.paidBy === 'partner' ? '<span class="tx-split-tag">Partner paid</span>' : '');
+      const vacTag = tx.vacationId ? '<span class="tx-vac-tag">🏖️</span>' : '';
       html += '<div class="transaction-item" data-txid="' + tx.id + '">' +
         '<div class="tx-icon ' + tx.type + (tx.isFixed ? ' fixed' : '') + '">' + icon + '</div>' +
         '<div class="tx-details">' +
-        '<div class="tx-category">' + tx.category + '</div>' +
+        '<div class="tx-category">' + tx.category + vacTag + '</div>' +
         (tx.note ? '<div class="tx-note">' + escapeHtml(tx.note) + '</div>' : '') +
         splitTag +
         '</div>' +
@@ -1084,6 +1105,10 @@ function showTransactionDetail(tx) {
   const d = new Date(tx.date);
   const dateStr = d.toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
   const timeStr = d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+  const txMonthKey = getMonthKey(d);
+  const vacName = tx.vacationId
+    ? (state.vacations.find(v => v.id === tx.vacationId) || state.activeVacation || {name:'Vacation'}).name
+    : null;
 
   showModal('<div class="detail-modal">' +
     '<div class="modal-handle"></div>' +
@@ -1091,13 +1116,15 @@ function showTransactionDetail(tx) {
     (tx.note ? '<div class="detail-row"><span class="detail-label">Note</span><span>' + escapeHtml(tx.note) + '</span></div>' : '') +
     '<div class="detail-row"><span class="detail-label">Type</span><span>' + (tx.isFixed ? 'Fixed Cost' : tx.type) + '</span></div>' +
     '<div class="detail-row"><span class="detail-label">Paid by</span><span>' + (tx.paidBy === 'both' ? 'Split ' + Math.round((tx.splitRatio||0.5)*100) + '/' + (100-Math.round((tx.splitRatio||0.5)*100)) : tx.paidBy) + '</span></div>' +
+    (vacName ? '<div class="detail-row"><span class="detail-label">Vacation</span><span>🏖️ ' + escapeHtml(vacName) + '</span></div>' : '') +
     '<div class="detail-row"><span class="detail-label">Date</span><span>' + dateStr + '</span></div>' +
     '<div class="detail-row"><span class="detail-label">Time</span><span>' + timeStr + '</span></div>' +
     '<button class="btn-danger-outline" id="modal-delete-tx">Delete</button>' +
     '</div>');
 
   document.getElementById('modal-delete-tx').addEventListener('click', () => {
-    const month = state.months[currentMonthKey];
+    // Use the transaction's own month key so deletes from history work correctly
+    const month = state.months[txMonthKey];
     if (month) {
       month.transactions = month.transactions.filter(t => t.id !== tx.id);
       if (tx.isFixed && tx.fixedCostId && month.fixedPaid[tx.fixedCostId]) {
