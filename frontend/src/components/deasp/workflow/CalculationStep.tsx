@@ -30,10 +30,21 @@ interface ConcessionaireEntry {
   name: string;
   port: string;
   type: string;
-  electricity_kwh: number;
-  diesel_litres: number;
-  lpg_litres: number;
-  vehicles_km: number;
+  activities?: Array<{
+    activity_key: string;
+    description: string;
+    quantity: number;
+    unit: string;
+    ef_value: number;
+    ef_unit: string;
+    ef_source: string;
+    scope: 1 | 2;
+    tco2: number;
+  }>;
+  electricity_kwh?: number;
+  diesel_litres?: number;
+  lpg_litres?: number;
+  vehicles_km?: number;
   scope1_tco2: number;
   scope2_tco2: number;
   total_tco2: number;

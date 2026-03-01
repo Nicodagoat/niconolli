@@ -19,10 +19,23 @@ interface ConcessionaireEntry {
   name: string;
   port: string;
   type: string;
-  electricity_kwh: number;
-  diesel_litres: number;
-  lpg_litres: number;
-  vehicles_km: number;
+  activities?: Array<{
+    id: string;
+    activity_key: string;
+    description: string;
+    quantity: number;
+    unit: string;
+    ef_value: number;
+    ef_unit: string;
+    ef_source: string;
+    scope: 1 | 2;
+    tco2: number;
+    source_ref: string;
+  }>;
+  electricity_kwh?: number;
+  diesel_litres?: number;
+  lpg_litres?: number;
+  vehicles_km?: number;
   scope1_tco2: number;
   scope2_tco2: number;
   total_tco2: number;
@@ -148,10 +161,16 @@ export default function ReportStep({ onBack }: Props) {
           rows.push(['Navi - Hotelling', r.name, r.hotelling_tco2.toFixed(2), 'tCO2', 'EMEP/EEA Tier 2', 'EMEP/EEA 2023', '90%', r.hotelling_tco2.toFixed(4)]);
           rows.push(['Navi - Manovra', r.name, r.maneuver_tco2.toFixed(2), 'tCO2', 'EMEP/EEA Tier 2', 'EMEP/EEA 2023', '90%', r.maneuver_tco2.toFixed(4)]);
         }
-        rows.push([]);
+        rows.push(['', '', '', '', '', '', '', '']);
         for (const c of concessionaires) {
-          rows.push(['Concessionario - Scope 1', c.name, c.scope1_tco2.toFixed(2), 'tCO2', 'ISPRA/DEFRA 2024', 'ISPRA 2024', '95%', c.scope1_tco2.toFixed(4)]);
-          rows.push(['Concessionario - Scope 2', c.name, c.scope2_tco2.toFixed(2), 'tCO2', 'ISPRA 2024 Grid', 'ISPRA 2024', '95%', c.scope2_tco2.toFixed(4)]);
+          if (c.activities && c.activities.length > 0) {
+            for (const a of c.activities) {
+              rows.push([`Concessionario S${a.scope} - ${a.activity_key}`, `${c.name}: ${a.description}`, a.quantity.toString(), a.unit, `${a.ef_value} ${a.ef_unit}`, a.ef_source, '95%', a.tco2.toFixed(4)]);
+            }
+          } else {
+            rows.push(['Concessionario - Scope 1', c.name, c.scope1_tco2.toFixed(2), 'tCO2', 'ISPRA/DEFRA 2024', 'ISPRA 2024', '95%', c.scope1_tco2.toFixed(4)]);
+            rows.push(['Concessionario - Scope 2', c.name, c.scope2_tco2.toFixed(2), 'tCO2', 'ISPRA 2024 Grid', 'ISPRA 2024', '95%', c.scope2_tco2.toFixed(4)]);
+          }
         }
         rows.push([]);
         rows.push(['TOTALE NAVI', '', shipTotal.toFixed(2), 'tCO2', '', '', '', shipTotal.toFixed(4)]);
@@ -177,9 +196,19 @@ export default function ReportStep({ onBack }: Props) {
         }
         lines.push('');
         lines.push('--- DETTAGLIO CONCESSIONARI ---');
-        lines.push('"Nome","Porto","Tipo","Elettricità_kWh","Gasolio_L","GPL_L","Veicoli_km","Scope1_tCO2","Scope2_tCO2","Totale_tCO2"');
+        lines.push('"Concessionario","Porto","Tipo","Scope1_tCO2","Scope2_tCO2","Totale_tCO2","N_Voci"');
         for (const c of concessionaires) {
-          lines.push(`"${c.name}","${c.port}","${c.type}","${c.electricity_kwh}","${c.diesel_litres}","${c.lpg_litres}","${c.vehicles_km}","${c.scope1_tco2.toFixed(2)}","${c.scope2_tco2.toFixed(2)}","${c.total_tco2.toFixed(2)}"`);
+          lines.push(`"${c.name}","${c.port}","${c.type}","${c.scope1_tco2.toFixed(2)}","${c.scope2_tco2.toFixed(2)}","${c.total_tco2.toFixed(2)}","${c.activities?.length || 0}"`);
+        }
+        lines.push('');
+        lines.push('--- AUDIT TRAIL CONCESSIONARI ---');
+        lines.push('"Concessionario","Attività","Descrizione","Quantità","Unità","EF_Valore","EF_Unità","EF_Fonte","Scope","tCO2","Origine_Dato"');
+        for (const c of concessionaires) {
+          if (c.activities) {
+            for (const a of c.activities) {
+              lines.push(`"${c.name}","${a.activity_key}","${a.description}","${a.quantity}","${a.unit}","${a.ef_value}","${a.ef_unit}","${a.ef_source}","S${a.scope}","${a.tco2.toFixed(4)}","${a.source_ref}"`);
+            }
+          }
         }
         lines.push('');
         lines.push('--- FATTORI APPLICATI ---');
@@ -235,6 +264,11 @@ export default function ReportStep({ onBack }: Props) {
         lines.push('-'.repeat(40));
         for (const c of concessionaires) {
           lines.push(`   ${c.name.padEnd(30)} S1: ${c.scope1_tco2.toFixed(2).padStart(8)} S2: ${c.scope2_tco2.toFixed(2).padStart(8)} Tot: ${c.total_tco2.toFixed(2).padStart(8)} tCO2`);
+          if (c.activities && c.activities.length > 0) {
+            for (const a of c.activities) {
+              lines.push(`      ${a.description.substring(0, 35).padEnd(35)} ${a.quantity.toLocaleString().padStart(10)} ${a.unit.padEnd(6)} × ${String(a.ef_value).padStart(10)} = ${a.tco2.toFixed(4).padStart(10)} tCO2 [${a.ef_source}]`);
+            }
+          }
         }
         lines.push(`   ${'TOTALE CONCESSIONARI'.padEnd(30)} S1: ${concScope1.toFixed(2).padStart(8)} S2: ${concScope2.toFixed(2).padStart(8)} Tot: ${concTotal.toFixed(2).padStart(8)} tCO2`);
         lines.push('');
