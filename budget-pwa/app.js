@@ -470,7 +470,13 @@ function showPartnerToast(msg) {
 function showScreen(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const screen = document.getElementById(screenId);
-  if (screen) screen.classList.add('active');
+  if (screen) {
+    screen.classList.add('active');
+    // Trigger entrance animation
+    screen.classList.remove('screen-enter');
+    void screen.offsetWidth;
+    screen.classList.add('screen-enter');
+  }
   currentScreen = screenId;
 
   document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -510,8 +516,7 @@ function renderMiniStatus() {
 
   el.innerHTML =
     '<span class="s-joint">Joint ' + fmt(jointRemaining) + '</span>' +
-    '<span class="s-personal">Mine ' + fmt(personalRemaining) + '</span>' +
-    (month.unforeseen.total > 0 ? '<span class="s-unforeseen">Unf. ' + fmt(month.unforeseen.total - t.unforeseenSpent) + '</span>' : '');
+    '<span class="s-personal">Mine ' + fmt(personalRemaining) + '</span>';
 }
 
 /* ─── DUE-SOON BAR ─── */
@@ -716,7 +721,12 @@ function handleNumpadInput(val) {
     }
   }
   const disp = document.getElementById('amount-display');
-  if (disp) disp.textContent = amountStr;
+  if (disp) {
+    disp.textContent = amountStr;
+    disp.classList.remove('amount-pop');
+    void disp.offsetWidth; // reflow
+    disp.classList.add('amount-pop');
+  }
   updateIouPreview();
 
   // Auto-select fixed cost if amount matches
@@ -989,11 +999,10 @@ function renderStatusScreen() {
     '<div class="budget-details"><span>' + fmt(p2Spent, currency) + ' spent</span><span>' + fmt(p2Total, currency) + ' budget</span></div>' +
     '</div>' : '') +
 
-    // Unforeseen
-    (month.unforeseen.total > 0 ? '<div class="budget-card">' +
-    '<div class="budget-card-header"><span class="budget-label">Unforeseen</span><span class="budget-remaining">' + fmt(month.unforeseen.total - t.unforeseenSpent, currency) + ' left</span></div>' +
-    '<div class="progress-bar"><div class="progress-fill unforeseen" style="width:' + (Math.min(100,Math.round(t.unforeseenSpent/month.unforeseen.total*100||0))) + '%"></div></div>' +
-    '<div class="budget-details"><span>' + fmt(t.unforeseenSpent, currency) + ' spent</span><span>' + fmt(month.unforeseen.total, currency) + ' fund</span></div>' +
+    // Unforeseen (no budget — just show spending)
+    (t.unforeseenSpent > 0 ? '<div class="budget-card unforeseen-card">' +
+    '<div class="budget-card-header"><span class="budget-label">⚡ Unforeseen</span><span class="budget-remaining unbudgeted">' + fmt(t.unforeseenSpent, currency) + ' spent</span></div>' +
+    '<p style="font-size:13px;opacity:.6;margin-top:4px">Unexpected expenses — tracked outside your budget</p>' +
     '</div>' : '') +
 
     '</div>';
@@ -1640,7 +1649,8 @@ function finishOnboarding(skipSetup) {
 }
 
 /* ─── SETUP WIZARD ─── */
-const WIZARD_STEPS = 6;
+// Steps: 0=Joint Budget, 1=Fixed Costs, 2=Personal Budgets, 3=Summary
+const WIZARD_STEPS = 4;
 
 function startWizard() {
   wizardStep = 0;
@@ -1667,22 +1677,29 @@ function renderWizardStep() {
   const s = state.settings;
   const currency = s.currency || '€';
 
+  // Animate step content in
+  content.classList.remove('wizard-step-enter');
+  void content.offsetWidth;
+  content.classList.add('wizard-step-enter');
+
   switch(wizardStep) {
     // ── Step 0: Joint Budget Total ──
     case 0:
       content.innerHTML =
-        '<h2>What\'s your joint budget?</h2>' +
-        '<p class="setup-subtitle">Monthly budget shared between both partners</p>' +
-        '<div class="setup-field"><label>Monthly Joint Budget</label>' +
-        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
+        '<div class="wizard-step-icon">💰</div>' +
+        '<h2>Joint budget</h2>' +
+        '<p class="setup-subtitle">Your shared monthly spending — fixed costs will be reserved from this automatically</p>' +
+        '<div class="setup-field">' +
+        '<div class="setup-amount-input large"><span class="currency">' + currency + '</span>' +
         '<input type="number" id="joint-total" value="' + (month.joint.total||'') + '" placeholder="0" inputmode="decimal" min="0" step="1"></div></div>' +
-        '<div class="setup-nav"><button class="btn-primary" id="wizard-next">Next →</button></div>';
+        '<div class="setup-nav single"><button class="btn-primary" id="wizard-next">Continue →</button></div>';
       document.getElementById('wizard-next').addEventListener('click', () => {
         const val = parseFloat(document.getElementById('joint-total').value) || 0;
         month.joint.total = val;
         saveState();
         nextWizardStep();
       });
+      document.getElementById('joint-total').focus();
       break;
 
     // ── Step 1: Fixed Costs ──
@@ -1695,24 +1712,22 @@ function renderWizardStep() {
         '<div class="fixed-cost-item" data-idx="' + i + '">' +
         '<div class="fixed-cost-icon">' + fc.icon + '</div>' +
         '<div class="fixed-cost-info"><div class="fixed-cost-name">' + fc.name + '</div>' +
-        '<div class="fixed-cost-meta">Due day ' + fc.dueDay + ' · ' + fc.paidBy + '</div></div>' +
+        '<div class="fixed-cost-meta">Due ' + fc.dueDay + (fc.dueDay===1?'st':fc.dueDay===2?'nd':fc.dueDay===3?'rd':'th') + ' · ' + (fc.paidBy === 'joint' ? 'Joint' : fc.paidBy === 'split' ? 'Split 50/50' : fc.paidBy) + '</div></div>' +
         '<div class="fixed-cost-amount">' + fmt(fc.amount, currency) + '</div>' +
-        '<button class="fixed-cost-remove" data-idx="' + i + '">×</button>' +
+        '<button class="fixed-cost-remove" data-idx="' + i + '" aria-label="Remove">×</button>' +
         '</div>'
       ).join('');
 
       content.innerHTML =
-        '<h2>Fixed Costs</h2>' +
-        '<p class="setup-subtitle">Recurring costs auto-reserved from your joint budget</p>' +
-        '<div class="fixed-costs-list" id="fc-list">' + (fcListHtml || '<p style="color:var(--lilac-ash);font-size:14px;padding:8px 0">No fixed costs added yet</p>') + '</div>' +
-        '<button class="add-fixed-cost-btn" id="add-fc-btn">+ Add Fixed Cost</button>' +
-        '<div class="fixed-summary-bar" style="margin-top:10px">' +
-        '<div class="s-row"><span>Fixed Costs Total</span><span><strong>' + fmt(fixedTotal, currency) + '</strong></span></div>' +
-        '<div class="s-row highlight"><span>Variable Budget</span><span>' + fmt(varBudget, currency) + '</span></div>' +
-        '</div>' +
+        '<div class="wizard-step-icon">📋</div>' +
+        '<h2>Fixed costs</h2>' +
+        '<p class="setup-subtitle">Recurring bills reserved from your joint budget each month</p>' +
+        '<div class="fixed-costs-list" id="fc-list">' + (fcListHtml || '<div class="fc-empty">No fixed costs yet — tap below to add</div>') + '</div>' +
+        '<button class="add-fixed-cost-btn" id="add-fc-btn">+ Add fixed cost</button>' +
+        (fixedCosts.length ? '<div class="fixed-summary-bar"><div class="s-row"><span>Reserved for fixed</span><span><strong>' + fmt(fixedTotal, currency) + '</strong></span></div><div class="s-row highlight"><span>Variable remaining</span><span><strong>' + fmt(varBudget, currency) + '</strong></span></div></div>' : '') +
         '<div class="setup-nav">' +
         '<button class="btn-ghost" id="wizard-back">← Back</button>' +
-        '<button class="btn-primary" id="wizard-next">Next →</button>' +
+        '<button class="btn-primary" id="wizard-next">Continue →</button>' +
         '</div>';
 
       document.getElementById('add-fc-btn').addEventListener('click', () => showAddFixedCostModal());
@@ -1728,56 +1743,25 @@ function renderWizardStep() {
       break;
     }
 
-    // ── Step 2: Variable Category Allocation (optional) ──
+    // ── Step 2: Personal Budgets ──
     case 2: {
-      const cats = VAR_CATEGORIES;
-      const allocated = month.joint.allocated || {};
+      const user1 = s.users.find(u=>u.id==='user1') || {id:'user1',name:'You'};
+      const user2 = s.users.find(u=>u.id==='user2') || {id:'user2',name:'Partner'};
       content.innerHTML =
-        '<h2>Category Limits</h2>' +
-        '<p class="setup-subtitle">Optional spending limits per category (variable budget only)</p>' +
-        '<div class="category-alloc-wrap">' +
-        cats.map(cat =>
-          '<div class="category-alloc-row">' +
-          '<span>' + cat.icon + ' ' + cat.name + '</span>' +
-          '<div class="setup-amount-input sm"><span class="currency">' + currency + '</span>' +
-          '<input type="number" class="cat-alloc-input" data-cat="' + cat.name + '" value="' + (allocated[cat.name]||'') + '" placeholder="No limit" inputmode="decimal" min="0"></div>' +
-          '</div>'
-        ).join('') +
+        '<div class="wizard-step-icon">👤</div>' +
+        '<h2>Personal budgets</h2>' +
+        '<p class="setup-subtitle">Each partner\'s individual spending limit — separate from the joint budget</p>' +
+        '<div class="setup-personal-row">' +
+        '<div class="setup-field"><label>' + escapeHtml(user1.name) + '</label>' +
+        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
+        '<input type="number" id="personal-user1" value="' + (month.personal.user1.total||'') + '" placeholder="0" inputmode="decimal" min="0"></div></div>' +
+        '<div class="setup-field"><label>' + escapeHtml(user2.name) + '</label>' +
+        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
+        '<input type="number" id="personal-user2" value="' + (month.personal.user2.total||'') + '" placeholder="0" inputmode="decimal" min="0"></div></div>' +
         '</div>' +
         '<div class="setup-nav">' +
         '<button class="btn-ghost" id="wizard-back">← Back</button>' +
-        '<button class="btn-primary" id="wizard-next">Next →</button>' +
-        '</div>';
-      document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
-      document.getElementById('wizard-next').addEventListener('click', () => {
-        const alloc = {};
-        document.querySelectorAll('.cat-alloc-input').forEach(inp => {
-          const v = parseFloat(inp.value);
-          if (v > 0) alloc[inp.dataset.cat] = v;
-        });
-        month.joint.allocated = alloc;
-        saveState();
-        nextWizardStep();
-      });
-      break;
-    }
-
-    // ── Step 3: Personal Budgets ──
-    case 3: {
-      const user1 = s.users.find(u=>u.id==='user1') || {id:'user1',name:'Alex'};
-      const user2 = s.users.find(u=>u.id==='user2') || {id:'user2',name:'Jordan'};
-      content.innerHTML =
-        '<h2>Personal Budgets</h2>' +
-        '<p class="setup-subtitle">Each partner\'s individual spending budget</p>' +
-        '<div class="setup-field"><label>' + user1.name + '\'s Budget</label>' +
-        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
-        '<input type="number" id="personal-user1" value="' + (month.personal.user1.total||'') + '" placeholder="0" inputmode="decimal" min="0"></div></div>' +
-        '<div class="setup-field"><label>' + user2.name + '\'s Budget</label>' +
-        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
-        '<input type="number" id="personal-user2" value="' + (month.personal.user2.total||'') + '" placeholder="0" inputmode="decimal" min="0"></div></div>' +
-        '<div class="setup-nav">' +
-        '<button class="btn-ghost" id="wizard-back">← Back</button>' +
-        '<button class="btn-primary" id="wizard-next">Next →</button>' +
+        '<button class="btn-primary" id="wizard-next">Continue →</button>' +
         '</div>';
       document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
       document.getElementById('wizard-next').addEventListener('click', () => {
@@ -1789,49 +1773,27 @@ function renderWizardStep() {
       break;
     }
 
-    // ── Step 4: Unforeseen Fund ──
-    case 4: {
-      content.innerHTML =
-        '<h2>Unforeseen Fund</h2>' +
-        '<p class="setup-subtitle">Emergency & unexpected expenses buffer</p>' +
-        '<div class="setup-field"><label>Unforeseen Fund Amount</label>' +
-        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
-        '<input type="number" id="unforeseen-total" value="' + (month.unforeseen.total||'') + '" placeholder="0" inputmode="decimal" min="0"></div>' +
-        '<div class="setup-hint">Tip: 5-10% of joint budget is a good buffer</div>' +
-        '</div>' +
-        '<div class="setup-nav">' +
-        '<button class="btn-ghost" id="wizard-back">← Back</button>' +
-        '<button class="btn-primary" id="wizard-next">Next →</button>' +
-        '</div>';
-      document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
-      document.getElementById('wizard-next').addEventListener('click', () => {
-        month.unforeseen.total = parseFloat(document.getElementById('unforeseen-total').value) || 0;
-        saveState();
-        nextWizardStep();
-      });
-      break;
-    }
-
-    // ── Step 5: Summary ──
-    case 5: {
+    // ── Step 3: Summary ──
+    case 3: {
       const fixedTotal = s.fixedCosts.reduce((sum,fc) => sum + fc.amount, 0);
       const varBudget = Math.max(0, month.joint.total - fixedTotal);
-      const user1 = s.users.find(u=>u.id==='user1') || {id:'user1',name:'Alex'};
-      const user2 = s.users.find(u=>u.id==='user2') || {id:'user2',name:'Jordan'};
+      const user1 = s.users.find(u=>u.id==='user1') || {id:'user1',name:'You'};
+      const user2 = s.users.find(u=>u.id==='user2') || {id:'user2',name:'Partner'};
       content.innerHTML =
-        '<h2>All Set!</h2>' +
-        '<p class="setup-subtitle">Here\'s your budget summary for this month</p>' +
+        '<div class="wizard-step-icon">✅</div>' +
+        '<h2>All set!</h2>' +
+        '<p class="setup-subtitle">Your budget for this month</p>' +
         '<div class="setup-summary">' +
-        '<div class="summary-row joint"><span>Joint Budget</span><strong>' + fmt(month.joint.total, currency) + '</strong></div>' +
-        (s.fixedCosts.length ? '<div class="summary-row fixed"><span>Fixed Costs Reserved</span><strong>−' + fmt(fixedTotal, currency) + '</strong></div>' : '') +
-        (s.fixedCosts.length ? '<div class="summary-row indent"><span>Variable Available</span><strong>' + fmt(varBudget, currency) + '</strong></div>' : '') +
-        '<div class="summary-row personal"><span>' + user1.name + '\'s Budget</span><strong>' + fmt(month.personal.user1.total, currency) + '</strong></div>' +
-        '<div class="summary-row personal"><span>' + user2.name + '\'s Budget</span><strong>' + fmt(month.personal.user2.total, currency) + '</strong></div>' +
-        (month.unforeseen.total > 0 ? '<div class="summary-row unforeseen"><span>Unforeseen Fund</span><strong>' + fmt(month.unforeseen.total, currency) + '</strong></div>' : '') +
+        '<div class="summary-row joint"><span>Joint budget</span><strong>' + fmt(month.joint.total, currency) + '</strong></div>' +
+        (s.fixedCosts.length ? '<div class="summary-row fixed indent"><span>→ Fixed reserved</span><span>−' + fmt(fixedTotal, currency) + '</span></div>' : '') +
+        (s.fixedCosts.length ? '<div class="summary-row available indent"><span>→ Variable available</span><strong>' + fmt(varBudget, currency) + '</strong></div>' : '') +
+        (month.personal.user1.total > 0 ? '<div class="summary-row personal"><span>' + escapeHtml(user1.name) + '\'s personal</span><strong>' + fmt(month.personal.user1.total, currency) + '</strong></div>' : '') +
+        (month.personal.user2.total > 0 ? '<div class="summary-row personal"><span>' + escapeHtml(user2.name) + '\'s personal</span><strong>' + fmt(month.personal.user2.total, currency) + '</strong></div>' : '') +
         '</div>' +
+        '<div class="setup-hint" style="margin-top:12px">Unforeseen expenses are always tracked separately — no need to budget for the unexpected.</div>' +
         '<div class="setup-nav" style="margin-top:16px">' +
         '<button class="btn-ghost" id="wizard-back">← Back</button>' +
-        '<button class="btn-primary" id="wizard-finish">Start Tracking!</button>' +
+        '<button class="btn-primary" id="wizard-finish">Start tracking →</button>' +
         '</div>';
       document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
       document.getElementById('wizard-finish').addEventListener('click', () => {
@@ -2190,7 +2152,6 @@ function checkMonthRollover() {
     m.joint.allocated = { ...prev.joint.allocated };
     m.personal.user1.total = prev.personal.user1.total;
     m.personal.user2.total = prev.personal.user2.total;
-    m.unforeseen.total = prev.unforeseen.total;
     saveState();
     showToast('Budget rolled over from last month', 'info');
   }

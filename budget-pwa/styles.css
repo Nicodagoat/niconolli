@@ -500,7 +500,7 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
   50%       { transform: translateX(10px); }
   80%       { transform: translateX(-6px); }
 }
-.shake { animation: shake 0.3s ease; }
+.shake { animation: shake 0.28s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
 
 /* ─────────────────────────────────────────
    BOTTOM NAV
@@ -942,9 +942,7 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
   background: var(--parchment); border-radius: 24px 24px 0 0;
   padding: 24px 20px calc(24px + var(--safe-bottom));
   width: 100%; max-width: 520px; max-height: 85vh; overflow-y: auto;
-  animation: slideUp 0.25s ease;
 }
-@keyframes slideUp { from { transform: translateY(60px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 .modal-handle { width: 40px; height: 4px; background: rgba(154,140,152,0.4); border-radius: 2px; margin: 0 auto 20px; }
 .detail-modal h3 { font-size: 22px; font-weight: 700; margin-bottom: 18px; color: var(--space-indigo); }
 .detail-row { display: flex; justify-content: space-between; align-items: center; padding: 13px 0; border-bottom: 1px solid rgba(154,140,152,0.15); font-size: 15px; }
@@ -964,9 +962,7 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
 .toast.success { background: var(--space-indigo); color: var(--white); }
 .toast.info    { background: var(--dusty-grape); color: var(--white); }
 
-@keyframes toastIn  { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
-@keyframes partnerToastIn { from { opacity: 0; transform: translate(-50%, -12px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 /* ─────────────────────────────────────────
    VACATION MODE
@@ -1231,13 +1227,7 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
 
 .ob-text-input.ob-input-error {
   border-color: var(--danger);
-  animation: shake 0.3s ease;
-}
-
-@keyframes shake {
-  0%,100% { transform: translateX(0); }
-  25%      { transform: translateX(-6px); }
-  75%      { transform: translateX(6px); }
+  animation: shake 0.28s cubic-bezier(0.36, 0.07, 0.19, 0.97);
 }
 
 /* ── Color picker ── */
@@ -1442,4 +1432,333 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+}
+
+/* ═══════════════════════════════════════════
+   ANIMATIONS & MODERN UX POLISH
+═══════════════════════════════════════════ */
+
+/* ── Screen entrance animation ── */
+@keyframes screenEnter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.screen-enter {
+  animation: screenEnter 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Amount display pop on each digit ── */
+@keyframes amountPop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+.amount-pop {
+  animation: amountPop 0.14s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Wizard step content entrance ── */
+@keyframes wizardStepIn {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.wizard-step-enter {
+  animation: wizardStepIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Split panel slide down on open ── */
+#split-panel:not([hidden]) {
+  animation: splitPanelIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes splitPanelIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Numpad: stronger press feedback ── */
+.num-btn {
+  will-change: transform;
+  user-select: none;
+}
+.num-btn:active {
+  transform: scale(0.90);
+  background: var(--space-indigo) !important;
+  color: var(--white) !important;
+  box-shadow: 0 1px 2px rgba(34,34,59,0.12);
+}
+
+/* ── Category pill transitions ── */
+.category-pill {
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, background;
+}
+.category-pill:active {
+  transform: scale(0.94);
+}
+
+/* ── Type toggle pills ── */
+.type-toggle-btn {
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.type-toggle-btn:active {
+  transform: scale(0.95);
+}
+
+/* ── Submit button ── */
+.submit-btn {
+  position: relative;
+  overflow: hidden;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 4px 16px rgba(34,34,59,0.25);
+}
+.submit-btn:active {
+  background: var(--dusty-grape);
+  transform: scale(0.97);
+  box-shadow: 0 2px 8px rgba(34,34,59,0.2);
+}
+
+/* ── Nav button tap ── */
+.nav-btn {
+  transition: color 0.15s;
+}
+.nav-btn:active .nav-icon {
+  transform: scale(0.88) !important;
+}
+
+/* ── Paid-by buttons press ── */
+.paid-by-btn {
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.paid-by-btn:active {
+  transform: scale(0.94);
+}
+
+/* ── Modal improved animation ── */
+@keyframes modalSlideUp {
+  from { transform: translateY(80px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.modal-content {
+  animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* ── Toast: springy entrance ── */
+@keyframes toastBounceIn {
+  0%   { opacity: 0; transform: translate(-50%, 20px) scale(0.92); }
+  60%  { transform: translate(-50%, -4px) scale(1.02); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+.toast {
+  animation: toastBounceIn 0.3s cubic-bezier(0.16, 1, 0.3, 1), toastOut 0.25s ease 2.5s forwards !important;
+}
+
+/* ── Success feedback improved ── */
+.success-feedback {
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes successPop {
+  0%   { opacity: 0; transform: scale(0.88) translateY(4px); }
+  70%  { transform: scale(1.05) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.success-feedback.show {
+  animation: successPop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Amount display larger & bolder ── */
+.amount-display {
+  font-size: 72px;
+  letter-spacing: -4px;
+}
+.currency-symbol {
+  font-size: 32px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+/* ── Numpad buttons slightly taller ── */
+.num-btn {
+  min-height: 58px;
+  border-radius: 18px;
+  font-size: 27px;
+  box-shadow: 0 2px 6px rgba(34,34,59,0.08);
+}
+
+/* ── Submit button ── */
+.submit-btn {
+  border-radius: 20px;
+  font-size: 18px;
+  letter-spacing: 0.4px;
+  padding: 17px;
+}
+
+/* ── Type toggle: pill style ── */
+.budget-type-toggle {
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(34,34,59,0.04);
+  margin: 0 14px;
+  border-radius: 20px;
+}
+
+/* ── Category pills: slightly larger ── */
+.category-pill {
+  padding: 9px 16px;
+  font-size: 13.5px;
+  border-radius: 24px;
+}
+
+/* ── Wizard step icon ── */
+.wizard-step-icon {
+  font-size: 40px;
+  margin-bottom: -4px;
+}
+
+/* ── Wizard: large amount input ── */
+.setup-amount-input.large {
+  padding: 18px 20px;
+}
+.setup-amount-input.large .currency {
+  font-size: 28px;
+}
+.setup-amount-input.large input {
+  font-size: 36px;
+  font-weight: 700;
+}
+
+/* ── Wizard single-button nav ── */
+.setup-nav.single {
+  margin-top: 8px;
+}
+.setup-nav.single .btn-primary {
+  flex: 1;
+}
+
+/* ── Wizard personal budgets side-by-side ── */
+.setup-personal-row {
+  display: flex;
+  gap: 12px;
+}
+.setup-personal-row .setup-field {
+  flex: 1;
+}
+
+/* ── Wizard fc-empty ── */
+.fc-empty {
+  color: var(--lilac-ash);
+  font-size: 14px;
+  padding: 12px 0;
+  text-align: center;
+}
+
+/* ── Summary available row ── */
+.summary-row.available {
+  background: rgba(74,78,105,0.07);
+  font-weight: 600;
+}
+.summary-row.available strong {
+  color: var(--dusty-grape);
+}
+
+/* ── Unforeseen card (no budget) ── */
+.unforeseen-card {
+  border: 2px dashed rgba(154,140,152,0.3);
+  background: rgba(154,140,152,0.06) !important;
+}
+.budget-remaining.unbudgeted {
+  font-size: 18px;
+  color: var(--lilac-ash);
+}
+
+/* ── Note row: slightly more padding ── */
+.note-row {
+  padding: 6px 14px;
+}
+
+/* ── Repeat button: modernised ── */
+.repeat-btn {
+  border-radius: 16px;
+  font-size: 20px;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.repeat-btn:active {
+  transform: scale(0.88) rotate(-30deg);
+  background: var(--dusty-grape);
+  color: var(--white);
+  border-color: var(--dusty-grape);
+}
+
+/* ── Progress bars: animated entrance ── */
+@keyframes fillBar {
+  from { width: 0 !important; }
+}
+.progress-fill, .stacked-seg {
+  animation: fillBar 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Transaction items: subtle entrance ── */
+@keyframes txSlideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.transaction-item {
+  animation: txSlideIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.transaction-item:nth-child(1)  { animation-delay: 0ms; }
+.transaction-item:nth-child(2)  { animation-delay: 25ms; }
+.transaction-item:nth-child(3)  { animation-delay: 50ms; }
+.transaction-item:nth-child(4)  { animation-delay: 75ms; }
+.transaction-item:nth-child(5)  { animation-delay: 100ms; }
+.transaction-item:nth-child(n+6){ animation-delay: 120ms; }
+
+/* ── Due soon bar: better pill look ── */
+.due-soon-btn {
+  border-radius: 22px;
+  transition: transform 0.12s, background 0.12s;
+}
+.due-soon-btn:not(.paid):active {
+  transform: scale(0.94);
+}
+
+/* ── Partner toast spring ── */
+@keyframes partnerSpringIn {
+  0%   { opacity: 0; transform: translate(-50%, -16px) scale(0.92); }
+  65%  { transform: translate(-50%, 3px) scale(1.02); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+.partner-toast {
+  animation: partnerSpringIn 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Progress dot in wizard ── */
+.progress-dot {
+  transition: background 0.25s, transform 0.25s, width 0.25s;
+}
+.progress-dot.active {
+  width: 20px;
+  border-radius: 4px;
+}
+
+/* ── Sync chip pulse when connected ── */
+.sync-chip.sync-connected .sync-dot {
+  animation: connectedPulse 2.5s ease infinite;
+}
+@keyframes connectedPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(111,207,151,0.5); }
+  50%       { box-shadow: 0 0 0 5px rgba(111,207,151,0); }
+}
+
+/* ── IOU card entrance ── */
+.iou-card {
+  animation: screenEnter 0.2s ease both;
+}
+
+/* ── Budget card entrance ── */
+.budget-card {
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.budget-card:active {
+  transform: scale(0.99);
 }
