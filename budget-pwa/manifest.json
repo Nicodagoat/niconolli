@@ -1,8 +1,8 @@
 {
-  "id": "com.couplebook.budgettracker",
-  "name": "CoupleBook — Budget Tracker",
-  "short_name": "CoupleBook",
-  "description": "Zero-friction couple budget tracking. Log expenses in 3 seconds.",
+  "id": "com.pairly.budgettracker",
+  "name": "Pairly — Budget Together",
+  "short_name": "Pairly",
+  "description": "Budget together, stress less. Log shared expenses in seconds.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

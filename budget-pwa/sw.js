@@ -1,11 +1,11 @@
 /* ══════════════════════════════════════════
-   COUPLE BUDGET PWA — Service Worker
+   PAIRLY — Service Worker v4
    Strategy: Cache-first for assets, with
    offline expense queue for submissions.
 ══════════════════════════════════════════ */
 
-const CACHE_NAME       = 'couplebudget-v3';
-const OFFLINE_QUEUE_KEY = 'couplebudget_offline_queue';
+const CACHE_NAME        = 'pairly-v4';
+const OFFLINE_QUEUE_KEY = 'pairly_offline_queue';
 
 const PRECACHE_ASSETS = [
   './',
@@ -100,11 +100,11 @@ async function flushOfflineQueue() {
 self.addEventListener('push', event => {
   const data = event.data?.json() || {};
   event.waitUntil(
-    self.registration.showNotification(data.title || 'CoupleBook', {
+    self.registration.showNotification(data.title || 'Pairly', {
       body:    data.body  || 'Time to log your expenses!',
       icon:    './icon.svg',
       badge:   './icon.svg',
-      tag:     'couplebudget-reminder',
+      tag:     'pairly-reminder',
       renotify: true,
       data:    { url: './' },
     })

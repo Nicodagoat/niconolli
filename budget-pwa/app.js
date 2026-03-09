@@ -1,13 +1,15 @@
 /* ══════════════════════════════════════════
-   COUPLE BUDGET PWA — app.js v3
-   Real-time sync + Fixed Costs + Split expenses
+   PAIRLY — app.js v4
+   Budget together, stress less.
+   Real-time sync · Fixed Costs · Split expenses · Vacation mode
 ══════════════════════════════════════════ */
 'use strict';
 
 /* ─── Constants ─── */
-const STORAGE_KEY = 'couplebudget_v3';
-const DEVICE_KEY  = 'couplebudget_deviceid';
-const SYNC_CH     = 'couplebudget_v3';
+const STORAGE_KEY = 'pairly_v4';
+const DEVICE_KEY  = 'pairly_deviceid';
+const SYNC_CH     = 'pairly_v4';
+const AUTH_KEY    = 'pairly_auth';
 
 const FIXED_ICONS = {
   Rent:'🏠', Mortgage:'🏦', Insurance:'🛡️', Electric:'⚡', Water:'💧',
@@ -36,6 +38,12 @@ let state = null;
 let syncMgr = null;
 let currentScreen = 'expense-entry';
 let wizardStep = 0;
+let onboardStep = 0;
+
+const AVATAR_COLORS = [
+  '#4A4E69','#C9ADA7','#9A8C98','#2D6A4F',
+  '#B7791F','#C0392B','#2980B9','#6C3483',
+];
 let currentMonthKey = getMonthKey();
 let currentHistoryMonth = getMonthKey();
 let amountStr = '0';
@@ -77,9 +85,13 @@ function defaultState() {
     pendingSync: [],
     activeVacation: null,
     vacations: [],
+    // Onboarding / profile
+    onboarded: false,
+    profile: { name: '', color: AVATAR_COLORS[0] },
+    inviteCode: null,
     settings: {
       currency: '€',
-      users: [{id:'user1', name:'Alex'}, {id:'user2', name:'Jordan'}],
+      users: [{id:'user1', name:'You'}, {id:'user2', name:'Partner'}],
       currentUser: 'user1',
       categories: VAR_CATEGORIES.map(c => c.name),
       fixedCosts: [],
@@ -113,15 +125,27 @@ function ensureMonth(key) {
 /* ─── Persistence ─── */
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    // Try new key first, fall back to old key for migration
+    const raw = localStorage.getItem(STORAGE_KEY)
+              || localStorage.getItem('couplebudget_v3')
+              || localStorage.getItem('couplebudget_v2');
     if (raw) {
       const parsed = JSON.parse(raw);
       state = parsed;
+      // Migrations
       if (!state.settings.fixedCosts) state.settings.fixedCosts = [];
       if (!state.pendingSync) state.pendingSync = [];
       if (!state.deviceId) state.deviceId = getOrCreateDeviceId();
       if (!state.vacations) state.vacations = [];
       if (state.activeVacation === undefined) state.activeVacation = null;
+      if (state.onboarded === undefined) state.onboarded = false;
+      if (!state.profile) state.profile = { name: '', color: AVATAR_COLORS[0] };
+      if (!state.inviteCode) state.inviteCode = null;
+      // Migrate user names: if they were set from real onboarding, mark onboarded
+      if (!state.onboarded && state.settings.users[0].name !== 'You' && state.settings.users[0].name !== 'Alex') {
+        state.profile.name = state.settings.users[0].name;
+        state.onboarded = true;
+      }
       return true;
     }
   } catch(e) { console.warn('Load error', e); }
@@ -1167,8 +1191,17 @@ function renderProfileScreen() {
   const pairedCode = syncConnected && syncMgr.getPairingCode();
   const pairingCode = syncMgr && syncMgr.peerId ? syncMgr.getPairingCode() : '------';
 
+  const profile = state.profile || { name: user1.name, color: AVATAR_COLORS[0] };
+  const myInitial = profile.name ? profile.name[0].toUpperCase() : '?';
+
   screen.innerHTML = '<div class="profile-container">' +
-    '<h2>Profile</h2>' +
+
+    // Profile header with avatar
+    '<div class="profile-hero">' +
+    '<div class="profile-hero-avatar" style="background:' + profile.color + '">' + myInitial + '</div>' +
+    '<div class="profile-hero-name">' + escapeHtml(profile.name || user1.name) + '</div>' +
+    '<button class="profile-hero-edit" id="profile-edit-name-btn">Edit profile</button>' +
+    '</div>' +
 
     // Who am I
     '<div class="profile-section">' +
@@ -1246,6 +1279,16 @@ function renderProfileScreen() {
     '</div>' +
 
     '</div>';
+
+  // Edit profile button → restart onboarding profile step
+  const profileEditBtn = document.getElementById('profile-edit-name-btn');
+  if (profileEditBtn) profileEditBtn.addEventListener('click', () => {
+    onboardStep = 1;
+    document.getElementById('bottom-nav').style.display = 'none';
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('onboard-screen').classList.add('active');
+    renderOnboardStep();
+  });
 
   // Bind events
   screen.querySelectorAll('.user-btn').forEach(btn => {
@@ -1350,6 +1393,250 @@ function renderProfileScreen() {
       if (vac) showVacationSummaryModal(vac);
     });
   });
+}
+
+/* ─── ONBOARDING ─── */
+
+function startOnboarding() {
+  onboardStep = 0;
+  document.getElementById('bottom-nav').style.display = 'none';
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('onboard-screen').classList.add('active');
+  renderOnboardStep();
+}
+
+function renderOnboardStep() {
+  const content = document.getElementById('onboard-content');
+  if (!content) return;
+  switch (onboardStep) {
+    case 0: renderOnboardWelcome(content); break;
+    case 1: renderOnboardProfile(content); break;
+    case 2: renderOnboardPairing(content); break;
+  }
+}
+
+function renderOnboardWelcome(content) {
+  content.innerHTML =
+    '<div class="ob-welcome">' +
+      '<div class="ob-logo-wrap">' +
+        '<img src="icon.svg" class="ob-logo" alt="Pairly">' +
+        '<div class="ob-app-name">pairly</div>' +
+      '</div>' +
+      '<div class="ob-tagline">' +
+        '<p>Budget together,</p><p>stress less.</p>' +
+      '</div>' +
+      '<div class="ob-welcome-actions">' +
+        '<button class="btn-primary ob-cta" id="ob-start">Get started</button>' +
+      '</div>' +
+      '<div class="ob-sub-actions">' +
+        '<button class="ob-skip-all" id="ob-skip-all">Already have an account? Skip setup</button>' +
+      '</div>' +
+    '</div>';
+  document.getElementById('ob-start').addEventListener('click', () => { onboardStep = 1; renderOnboardStep(); });
+  document.getElementById('ob-skip-all').addEventListener('click', () => finishOnboarding(true));
+}
+
+function renderOnboardProfile(content) {
+  const profile = state.profile || { name: '', color: AVATAR_COLORS[0] };
+  const initial = profile.name ? profile.name[0].toUpperCase() : '?';
+  content.innerHTML =
+    '<div class="ob-step-wrap">' +
+      '<div class="ob-step-label">Step 1 of 2</div>' +
+      '<h2 class="ob-step-title">Create your profile</h2>' +
+      '<p class="ob-step-sub">How should your partner see you?</p>' +
+      '<div class="ob-avatar-wrap">' +
+        '<div class="ob-avatar" id="ob-avatar-preview" style="background:' + profile.color + '">' +
+          '<span id="ob-avatar-initial">' + initial + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="setup-field">' +
+        '<label class="setup-label">Your name</label>' +
+        '<input type="text" id="ob-name" class="ob-text-input" ' +
+          'value="' + escapeHtml(profile.name) + '" ' +
+          'placeholder="Enter your name" ' +
+          'autocomplete="given-name" autocapitalize="words" ' +
+          'inputmode="text" maxlength="20">' +
+      '</div>' +
+      '<div class="ob-color-label">Your colour</div>' +
+      '<div class="ob-color-grid" id="ob-color-grid">' +
+        AVATAR_COLORS.map(c =>
+          '<button class="ob-color-swatch' + (c === profile.color ? ' selected' : '') + '" ' +
+          'data-color="' + c + '" style="background:' + c + '" aria-label="Color ' + c + '"></button>'
+        ).join('') +
+      '</div>' +
+      '<div class="setup-nav" style="margin-top:28px">' +
+        '<button class="btn-ghost" id="ob-back">← Back</button>' +
+        '<button class="btn-primary" id="ob-next">Continue →</button>' +
+      '</div>' +
+    '</div>';
+
+  const nameInput = document.getElementById('ob-name');
+  const avatarEl = document.getElementById('ob-avatar-preview');
+  const initialEl = document.getElementById('ob-avatar-initial');
+
+  nameInput.addEventListener('input', () => {
+    const v = nameInput.value.trim();
+    initialEl.textContent = v ? v[0].toUpperCase() : '?';
+  });
+  nameInput.focus();
+
+  document.querySelectorAll('.ob-color-swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.ob-color-swatch').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      avatarEl.style.background = btn.dataset.color;
+      state.profile.color = btn.dataset.color;
+    });
+  });
+
+  document.getElementById('ob-back').addEventListener('click', () => { onboardStep = 0; renderOnboardStep(); });
+  document.getElementById('ob-next').addEventListener('click', () => {
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.classList.add('ob-input-error'); nameInput.focus(); return; }
+    state.profile.name = name;
+    state.settings.users[0].name = name;
+    saveState();
+    onboardStep = 2;
+    renderOnboardStep();
+  });
+}
+
+function renderOnboardPairing(content) {
+  const myCode = getOrCreateInviteCode();
+  // Pre-fill if opened via share link
+  const pairParam = new URLSearchParams(location.search).get('pair');
+  if (pairParam) history.replaceState({ app: true }, '', location.pathname);
+
+  content.innerHTML =
+    '<div class="ob-step-wrap">' +
+      '<div class="ob-step-label">Step 2 of 2</div>' +
+      '<h2 class="ob-step-title">Connect your partner</h2>' +
+      '<p class="ob-step-sub">Share your code so you can track together in real time</p>' +
+
+      '<div class="ob-pair-card">' +
+        '<div class="ob-pair-card-label">Your invite code</div>' +
+        '<div class="ob-pair-code" id="ob-pair-code">' + myCode + '</div>' +
+        '<button class="ob-share-btn" id="ob-share-btn">Share invite link</button>' +
+      '</div>' +
+
+      '<div class="ob-pair-divider"><span>or enter partner\'s code</span></div>' +
+
+      '<div class="setup-field">' +
+        '<input type="text" id="ob-partner-code" class="ob-code-input" ' +
+          'value="' + (pairParam ? escapeHtml(pairParam) : '') + '" ' +
+          'placeholder="e.g. A3BX7K" ' +
+          'maxlength="8" autocomplete="off" autocorrect="off" ' +
+          'autocapitalize="characters" spellcheck="false" inputmode="text">' +
+      '</div>' +
+
+      '<div id="ob-pair-status" class="ob-pair-status" hidden></div>' +
+
+      '<div class="setup-nav" style="margin-top:16px">' +
+        '<button class="btn-ghost" id="ob-back">← Back</button>' +
+        '<button class="btn-primary" id="ob-connect">Connect →</button>' +
+      '</div>' +
+      '<button class="ob-skip-btn" id="ob-skip">Skip — I\'ll connect later from Profile</button>' +
+    '</div>';
+
+  document.getElementById('ob-back').addEventListener('click', () => { onboardStep = 1; renderOnboardStep(); });
+  document.getElementById('ob-skip').addEventListener('click', finishOnboarding);
+
+  document.getElementById('ob-share-btn').addEventListener('click', () => {
+    const shareUrl = location.origin + location.pathname + '?pair=' + myCode;
+    const text = (state.profile.name || 'Your partner') + ' is inviting you to track your budget together on Pairly. Use code: ' + myCode;
+    if (navigator.share) {
+      navigator.share({ title: 'Join me on Pairly', text, url: shareUrl }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(shareUrl)
+        .then(() => showToast('Invite link copied!', 'success'))
+        .catch(() => {
+          // Fallback: show code in toast
+          showToast('Your code: ' + myCode, 'info');
+        });
+    }
+  });
+
+  document.getElementById('ob-connect').addEventListener('click', () => {
+    const partnerCode = document.getElementById('ob-partner-code').value.trim().toUpperCase();
+    if (!partnerCode || partnerCode.length < 4) {
+      showToast('Enter your partner\'s code first', 'info');
+      document.getElementById('ob-partner-code').focus();
+      return;
+    }
+    const statusEl = document.getElementById('ob-pair-status');
+    statusEl.hidden = false;
+    statusEl.textContent = 'Connecting…';
+    statusEl.className = 'ob-pair-status connecting';
+    connectWithCode(partnerCode, statusEl, () => {
+      setTimeout(finishOnboarding, 800);
+    });
+  });
+
+  // Auto-trigger if deep link had a code
+  if (pairParam) {
+    document.getElementById('ob-partner-code').value = pairParam.toUpperCase();
+  }
+}
+
+function getOrCreateInviteCode() {
+  if (!state.inviteCode) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    state.inviteCode = Array.from({ length: 6 }, () =>
+      chars[Math.floor(Math.random() * chars.length)]
+    ).join('');
+    saveState();
+  }
+  return state.inviteCode;
+}
+
+function connectWithCode(partnerCode, statusEl, onSuccess) {
+  // Store partner code — the SyncManager will use it once PeerJS initialises
+  state.settings.partnerCode = partnerCode;
+  saveState();
+
+  const updateStatus = (msg, cls) => {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.className = 'ob-pair-status ' + (cls || '');
+  };
+
+  // Try to initialise the peer connection
+  if (!syncMgr) { onSuccess && onSuccess(); return; }
+
+  syncMgr.initPeer().then(() => {
+    const myPeerId = syncMgr.peerId;
+    // Derive the partner's likely peer ID from their invite code
+    // Convention: peer ID ends with the invite code (lowercase)
+    // We search for a peer whose ID ends in their code
+    const partnerPeerId = partnerCode.toLowerCase();
+    updateStatus('Reaching partner…', 'connecting');
+    return syncMgr.connect(partnerPeerId);
+  }).then(() => {
+    state.pairedPeerId = partnerCode.toLowerCase();
+    saveState();
+    updateStatus('Connected! 🎉', 'success');
+    onSuccess && onSuccess();
+  }).catch(() => {
+    // Connection failed — still save the code and let them try again from Profile
+    updateStatus('Saved! Will connect when partner is online.', 'saved');
+    setTimeout(onSuccess, 1200);
+  });
+}
+
+function finishOnboarding(skipSetup) {
+  state.onboarded = true;
+  saveState();
+  // Save to new storage key
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+
+  document.getElementById('bottom-nav').style.display = '';
+
+  const month = state.months[currentMonthKey];
+  if (!skipSetup && (!month || month.joint.total === 0)) {
+    startWizard();
+  } else {
+    showScreen('expense-entry');
+  }
 }
 
 /* ─── SETUP WIZARD ─── */
@@ -1549,6 +1836,7 @@ function renderWizardStep() {
       document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
       document.getElementById('wizard-finish').addEventListener('click', () => {
         saveState();
+        document.getElementById('bottom-nav').style.display = '';
         showScreen('expense-entry');
       });
       break;
@@ -1821,9 +2109,11 @@ function boot() {
   initRepeatBtn();
   initSplitPanel();
 
-  // Check if setup needed
+  // Route: onboarding → budget wizard → main app
   const month = state.months[currentMonthKey];
-  if (!month || month.joint.total === 0) {
+  if (!state.onboarded || !state.profile || !state.profile.name) {
+    startOnboarding();
+  } else if (!month || month.joint.total === 0) {
     startWizard();
   } else {
     showScreen('expense-entry');
