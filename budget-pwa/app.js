@@ -661,12 +661,17 @@ function renderExpenseEntry() {
 }
 
 /* ─── NUMBER PAD ─── */
+function vibrate(ms) {
+  if (navigator.vibrate) navigator.vibrate(ms || 8);
+}
+
 function initNumpad() {
   const numpad = document.getElementById('numpad');
   if (!numpad) return;
   numpad.addEventListener('click', (e) => {
     const btn = e.target.closest('.num-btn');
     if (!btn) return;
+    vibrate(8);
     const val = btn.dataset.value;
     handleNumpadInput(val);
   });
@@ -801,8 +806,21 @@ function submitExpense() {
   selectedFixedId = null;
   if (noteEl) noteEl.value = '';
   paidBy = 'me';
+  splitRatio = 50;
   document.querySelectorAll('.paid-by-btn').forEach(b => b.classList.toggle('active', b.dataset.paid === 'me'));
-  document.getElementById('split-ratio-row') && (document.getElementById('split-ratio-row').hidden = true);
+  // Close + reset split panel fully
+  const splitPanel = document.getElementById('split-panel');
+  if (splitPanel) splitPanel.hidden = true;
+  const splitToggleBtn = document.getElementById('split-toggle-btn');
+  if (splitToggleBtn) splitToggleBtn.setAttribute('aria-expanded', 'false');
+  const splitRatioRow = document.getElementById('split-ratio-row');
+  if (splitRatioRow) splitRatioRow.hidden = true;
+  const slider = document.getElementById('split-ratio');
+  if (slider) { slider.value = 50; slider.style.setProperty('--val', '50%'); }
+  const smePct = document.getElementById('split-me-pct');
+  const sPartnerPct = document.getElementById('split-partner-pct');
+  if (smePct) smePct.textContent = '50%';
+  if (sPartnerPct) sPartnerPct.textContent = '50%';
 
   renderExpenseEntry();
 }
@@ -1572,7 +1590,7 @@ function startVacation(name) {
     startDate: new Date().toISOString(),
   };
   saveState();
-  renderProfileScreen();
+  if (currentScreen === 'profile-screen') renderProfileScreen();
   renderExpenseEntry();
   showToast('Vacation mode started! 🏖️', 'success');
 }
@@ -1819,6 +1837,52 @@ function boot() {
     if (e.key === 'Enter' && currentScreen === 'expense-entry') submitExpense();
     if (e.key === 'Escape') closeModal();
   });
+
+  // Android hardware back button: close modal if open, else go to expense-entry
+  history.pushState({ app: true }, '');
+  window.addEventListener('popstate', (e) => {
+    const overlay = document.getElementById('modal-overlay');
+    if (overlay && overlay.classList.contains('active')) {
+      closeModal();
+      history.pushState({ app: true }, '');
+    } else if (currentScreen !== 'expense-entry') {
+      showScreen('expense-entry');
+      history.pushState({ app: true }, '');
+    }
+  });
+
+  // Handle ?quick= URL params from PWA manifest shortcuts
+  const quickParam = new URLSearchParams(location.search).get('quick');
+  if (quickParam) {
+    showScreen('expense-entry');
+    // Try to pre-select the matching category pill after render
+    setTimeout(() => {
+      const pills = document.querySelectorAll('.category-pill');
+      for (const pill of pills) {
+        if (pill.dataset.category && pill.dataset.category.toLowerCase() === quickParam.toLowerCase()) {
+          pill.click();
+          break;
+        }
+      }
+    }, 100);
+    // Clean URL without reloading
+    history.replaceState({ app: true }, '', location.pathname);
+  }
+
+  // Register service worker for PWA / Play Store TWA support
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => {
+        console.log('[SW] Registered, scope:', reg.scope);
+        // Listen for SW-driven sync-complete events
+        navigator.serviceWorker.addEventListener('message', (evt) => {
+          if (evt.data && evt.data.type === 'SYNC_COMPLETE') {
+            updateSyncChip('online');
+          }
+        });
+      })
+      .catch(err => console.warn('[SW] Registration failed:', err));
+  }
 }
 
 function checkMonthRollover() {

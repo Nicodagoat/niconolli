@@ -1,10 +1,12 @@
 {
+  "id": "com.couplebook.budgettracker",
   "name": "CoupleBook — Budget Tracker",
   "short_name": "CoupleBook",
   "description": "Zero-friction couple budget tracking. Log expenses in 3 seconds.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait-primary",
   "background_color": "#F2E9E4",
   "theme_color": "#22223B",

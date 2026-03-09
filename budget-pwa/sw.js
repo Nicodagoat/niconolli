@@ -4,7 +4,7 @@
    offline expense queue for submissions.
 ══════════════════════════════════════════ */
 
-const CACHE_NAME       = 'couplebudget-v1';
+const CACHE_NAME       = 'couplebudget-v3';
 const OFFLINE_QUEUE_KEY = 'couplebudget_offline_queue';
 
 const PRECACHE_ASSETS = [
