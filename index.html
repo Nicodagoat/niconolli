@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Pairly">
+  <meta name="theme-color" content="#22223B">
+  <meta name="description" content="Budget together, stress less — log shared expenses in seconds">
+  <title>Pairly</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+</head>
+<body>
+  <div id="app">
+
+    <!-- ═══ ONBOARDING SCREEN ═══ -->
+    <div id="onboard-screen" class="screen onboard-screen">
+      <div id="onboard-content" class="onboard-content"></div>
+    </div>
+
+    <!-- ═══ SETUP WIZARD ═══ -->
+    <div id="setup-wizard" class="screen">
+      <div class="setup-header">
+        <div id="setup-progress" class="setup-progress"></div>
+      </div>
+      <div id="setup-step-content" class="setup-step-content"></div>
+    </div>
+
+    <!-- ═══ EXPENSE ENTRY (default screen) ═══ -->
+    <div id="expense-entry" class="screen">
+
+      <!-- Mini status bar: budget remaining + sync chip -->
+      <div class="mini-status-wrap">
+        <div id="mini-status" class="mini-status" role="button" tabindex="0" aria-label="View budget status"></div>
+        <div id="sync-chip" class="sync-chip sync-offline" title="Sync status" role="status" aria-live="polite">
+          <span class="sync-dot"></span><span class="sync-label">Offline</span>
+        </div>
+      </div>
+
+      <!-- Vacation mode active banner -->
+      <div id="vacation-banner" class="vacation-banner" hidden>
+        <span id="vac-banner-name" class="vac-banner-name">🏖️ Vacation</span>
+        <button id="vac-end-quick-btn" class="vac-end-quick-btn">End &amp; Settle</button>
+      </div>
+
+      <!-- Due-soon fixed cost shortcuts (hidden when nothing due) -->
+      <div id="due-soon-bar" class="due-soon-bar" aria-label="Fixed costs due soon"></div>
+
+      <!-- Amount display -->
+      <div class="amount-area">
+        <div class="amount-display-row" id="amount-area-el">
+          <span id="currency-symbol" class="currency-symbol">€</span>
+          <span id="amount-display" class="amount-display">0</span>
+        </div>
+        <div id="success-feedback" class="success-feedback" aria-live="polite"></div>
+      </div>
+
+      <!-- Budget type toggle -->
+      <div class="budget-type-toggle" role="group" aria-label="Budget type">
+        <button class="type-toggle-btn active" data-type="joint">Joint</button>
+        <button class="type-toggle-btn" data-type="personal">Mine</button>
+        <button class="type-toggle-btn" data-type="unforeseen">Unforeseen</button>
+      </div>
+
+      <!-- Category section: fixed costs + variable in one scrollable row -->
+      <div id="category-pills" class="category-pills" role="group" aria-label="Expense category"></div>
+
+      <!-- Split expense panel (collapsed by default) -->
+      <div class="split-section">
+        <button id="split-toggle-btn" class="split-toggle-btn" aria-expanded="false">
+          Split expense <span class="split-chevron">▾</span>
+        </button>
+        <div id="split-panel" class="split-panel" hidden>
+          <div class="paid-by-row">
+            <span class="paid-by-label">Paid by:</span>
+            <button class="paid-by-btn active" data-paid="me">Me</button>
+            <button class="paid-by-btn" data-paid="partner">Partner</button>
+            <button class="paid-by-btn" data-paid="both">Split 50/50</button>
+          </div>
+          <div id="split-ratio-row" class="split-ratio-row" hidden>
+            <div class="split-ratio-labels">
+              <span id="split-me-pct">50%</span>
+              <span class="split-vs">vs</span>
+              <span id="split-partner-pct">50%</span>
+            </div>
+            <input type="range" id="split-ratio" min="0" max="100" value="50" step="5"
+              aria-label="Split ratio">
+            <div class="split-names-row">
+              <span id="split-my-name">Me</span>
+              <span id="split-partner-name">Partner</span>
+            </div>
+          </div>
+          <div id="iou-preview" class="iou-preview" hidden></div>
+        </div>
+      </div>
+
+      <!-- Note input with repeat button -->
+      <div class="note-row">
+        <input
+          type="text"
+          id="expense-note"
+          class="note-input"
+          placeholder="Note (optional)..."
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="sentences"
+          spellcheck="false"
+          aria-label="Expense note"
+        >
+        <button class="repeat-btn" id="repeat-btn" title="Repeat last expense" aria-label="Repeat last expense">↻</button>
+      </div>
+
+      <!-- Custom number pad -->
+      <div id="numpad" class="numpad" role="group" aria-label="Number pad">
+        <button class="num-btn" data-value="1">1</button>
+        <button class="num-btn" data-value="2">2</button>
+        <button class="num-btn" data-value="3">3</button>
+        <button class="num-btn" data-value="4">4</button>
+        <button class="num-btn" data-value="5">5</button>
+        <button class="num-btn" data-value="6">6</button>
+        <button class="num-btn" data-value="7">7</button>
+        <button class="num-btn" data-value="8">8</button>
+        <button class="num-btn" data-value="9">9</button>
+        <button class="num-btn decimal" data-value=".">.</button>
+        <button class="num-btn" data-value="0">0</button>
+        <button class="num-btn backspace" data-value="backspace">⌫</button>
+      </div>
+
+      <!-- Submit button -->
+      <button id="submit-btn" class="submit-btn" aria-label="Add expense">Add Expense</button>
+
+    </div>
+
+    <!-- ═══ STATUS SCREEN ═══ -->
+    <div id="status-screen" class="screen scrollable-screen"></div>
+
+    <!-- ═══ HISTORY SCREEN ═══ -->
+    <div id="history-screen" class="screen scrollable-screen"></div>
+
+    <!-- ═══ PROFILE SCREEN ═══ -->
+    <div id="profile-screen" class="screen scrollable-screen"></div>
+
+    <!-- ═══ BOTTOM NAVIGATION ═══ -->
+    <nav id="bottom-nav" class="bottom-nav" role="navigation" aria-label="Main navigation">
+      <button class="nav-btn active" data-screen="expense-entry" aria-label="Add expense">
+        <span class="nav-icon add-icon">+</span>
+        <span class="nav-label">Add</span>
+      </button>
+      <button class="nav-btn" data-screen="status-screen" aria-label="Budget status">
+        <span class="nav-icon">◎</span>
+        <span class="nav-label">Status</span>
+      </button>
+      <button class="nav-btn" data-screen="history-screen" aria-label="Transaction history">
+        <span class="nav-icon">≡</span>
+        <span class="nav-label">History</span>
+      </button>
+      <button class="nav-btn" data-screen="profile-screen" aria-label="Profile and settings">
+        <span class="nav-icon">👤</span>
+        <span class="nav-label">Profile</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- Modal overlay -->
+  <div id="modal-overlay" class="modal-overlay" role="dialog" aria-modal="true"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

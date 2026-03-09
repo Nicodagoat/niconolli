@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="#F2E9E4"/>
+  <!-- Left card (almond-silk / blush) -->
+  <rect x="64" y="130" width="222" height="222" rx="54" fill="#C9ADA7"/>
+  <!-- Right card (dusty-grape) overlapping on top -->
+  <rect x="226" y="160" width="222" height="222" rx="54" fill="#4A4E69"/>
+  <!-- Dot: space-indigo above the overlap point -->
+  <circle cx="240" cy="140" r="36" fill="#22223B"/>
+</svg>
