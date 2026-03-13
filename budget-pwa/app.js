@@ -1745,19 +1745,16 @@ function renderWizardStep() {
 
     // ── Step 2: Personal Budgets ──
     case 2: {
-      const user1 = s.users.find(u=>u.id==='user1') || {id:'user1',name:'You'};
-      const user2 = s.users.find(u=>u.id==='user2') || {id:'user2',name:'Partner'};
+      const me = s.currentUser;
+      const myUser = s.users.find(u=>u.id===me) || {id:me,name:'You'};
       content.innerHTML =
         '<div class="wizard-step-icon">👤</div>' +
-        '<h2>Personal budgets</h2>' +
-        '<p class="setup-subtitle">Each partner\'s individual spending limit — separate from the joint budget</p>' +
+        '<h2>Personal budget</h2>' +
+        '<p class="setup-subtitle">Your individual spending limit — separate from the joint budget</p>' +
         '<div class="setup-personal-row">' +
-        '<div class="setup-field"><label>' + escapeHtml(user1.name) + '</label>' +
+        '<div class="setup-field"><label>' + escapeHtml(myUser.name) + '</label>' +
         '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
-        '<input type="number" id="personal-user1" value="' + (month.personal.user1.total||'') + '" placeholder="0" inputmode="decimal" min="0"></div></div>' +
-        '<div class="setup-field"><label>' + escapeHtml(user2.name) + '</label>' +
-        '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
-        '<input type="number" id="personal-user2" value="' + (month.personal.user2.total||'') + '" placeholder="0" inputmode="decimal" min="0"></div></div>' +
+        '<input type="number" id="personal-me" value="' + (month.personal[me].total||'') + '" placeholder="0" inputmode="decimal" min="0"></div></div>' +
         '</div>' +
         '<div class="setup-nav">' +
         '<button class="btn-ghost" id="wizard-back">← Back</button>' +
@@ -1765,8 +1762,7 @@ function renderWizardStep() {
         '</div>';
       document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
       document.getElementById('wizard-next').addEventListener('click', () => {
-        month.personal.user1.total = parseFloat(document.getElementById('personal-user1').value) || 0;
-        month.personal.user2.total = parseFloat(document.getElementById('personal-user2').value) || 0;
+        month.personal[me].total = parseFloat(document.getElementById('personal-me').value) || 0;
         saveState();
         nextWizardStep();
       });
