@@ -145,7 +145,7 @@ input  { font-family: inherit; -webkit-tap-highlight-color: transparent; }
   white-space: nowrap;
   pointer-events: none;
   box-shadow: 0 4px 16px rgba(34,34,59,0.3);
-  animation: partnerToastIn 0.25s ease, toastOut 0.3s ease 3.5s forwards;
+  animation: partnerSpringIn 0.32s cubic-bezier(0.16, 1, 0.3, 1), toastOut 0.3s ease 3.5s forwards;
 }
 
 /* ─────────────────────────────────────────
@@ -956,7 +956,7 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
   left: 50%; transform: translateX(-50%);
   padding: 12px 24px; border-radius: 14px; font-size: 14px; font-weight: 600;
   z-index: 2000; white-space: nowrap; pointer-events: none;
-  animation: toastIn 0.25s ease, toastOut 0.25s ease 2.5s forwards;
+  animation: toastBounceIn 0.3s cubic-bezier(0.16, 1, 0.3, 1), toastOut 0.25s ease 2.5s forwards;
 }
 .toast.error   { background: var(--danger); color: var(--white); }
 .toast.success { background: var(--space-indigo); color: var(--white); }
@@ -1548,9 +1548,6 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
   60%  { transform: translate(-50%, -4px) scale(1.02); }
   100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
-.toast {
-  animation: toastBounceIn 0.3s cubic-bezier(0.16, 1, 0.3, 1), toastOut 0.25s ease 2.5s forwards !important;
-}
 
 /* ── Success feedback improved ── */
 .success-feedback {
@@ -1727,9 +1724,6 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
   0%   { opacity: 0; transform: translate(-50%, -16px) scale(0.92); }
   65%  { transform: translate(-50%, 3px) scale(1.02); }
   100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
-}
-.partner-toast {
-  animation: partnerSpringIn 0.32s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* ── Progress dot in wizard ── */
