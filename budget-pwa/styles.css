@@ -467,14 +467,16 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
 ───────────────────────────────────────── */
 .numpad {
   display: grid; grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(4, 1fr);
   gap: 7px; padding: 5px 14px; flex: 1; min-height: 0;
+  overflow: hidden;
 }
 
 .num-btn {
   background: var(--white); border: none; border-radius: 16px;
   font-size: 26px; font-weight: 500; color: var(--space-indigo);
   display: flex; align-items: center; justify-content: center;
-  min-height: 54px;
+  min-height: 0;
   transition: background 0.1s, transform 0.06s;
   box-shadow: 0 1px 4px rgba(34,34,59,0.07);
   touch-action: manipulation;
@@ -488,8 +490,9 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
 .submit-btn {
   background: var(--space-indigo); color: var(--white); border: none;
   border-radius: 18px; font-size: 19px; font-weight: 700;
-  letter-spacing: 0.3px; padding: 15px; margin: 5px 14px 8px;
+  letter-spacing: 0.3px; padding: 15px; margin: 4px 14px 6px;
   flex-shrink: 0; transition: background 0.12s, transform 0.08s;
+  border-top: 1px solid transparent; /* visual floor */
 }
 .submit-btn:active { background: var(--dusty-grape); transform: scale(0.97); }
 
@@ -1475,6 +1478,30 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Compact mode when split panel is open ── */
+#expense-entry:has(#split-panel:not([hidden])) .amount-area {
+  padding: 2px 16px 0;
+}
+#expense-entry:has(#split-panel:not([hidden])) .amount-display {
+  font-size: 52px;
+}
+#expense-entry:has(#split-panel:not([hidden])) .currency-symbol {
+  font-size: 24px;
+}
+#expense-entry:has(#split-panel:not([hidden])) .budget-type-toggle {
+  padding: 3px 14px;
+}
+#expense-entry:has(#split-panel:not([hidden])) .split-section {
+  padding: 1px 14px;
+}
+#expense-entry:has(#split-panel:not([hidden])) .note-row {
+  padding: 3px 14px;
+}
+#expense-entry:has(#split-panel:not([hidden])) .split-panel {
+  padding: 8px 12px;
+  gap: 7px;
+}
+
 /* ── Numpad: stronger press feedback ── */
 .num-btn {
   will-change: transform;
@@ -1575,9 +1602,9 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
   opacity: 0.7;
 }
 
-/* ── Numpad buttons slightly taller ── */
+/* ── Numpad buttons: fill available height, no fixed min ── */
 .num-btn {
-  min-height: 58px;
+  min-height: 0;
   border-radius: 18px;
   font-size: 27px;
   box-shadow: 0 2px 6px rgba(34,34,59,0.08);
