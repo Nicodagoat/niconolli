@@ -96,6 +96,7 @@ function defaultState() {
       categories: VAR_CATEGORIES.map(c => c.name),
       fixedCosts: [],
       notifications: true,
+      theme: 'system',
     },
     months: {},
   };
@@ -134,6 +135,7 @@ function loadState() {
       state = parsed;
       // Migrations
       if (!state.settings.fixedCosts) state.settings.fixedCosts = [];
+      if (!state.settings.theme) state.settings.theme = 'system';
       if (!state.pendingSync) state.pendingSync = [];
       if (!state.deviceId) state.deviceId = getOrCreateDeviceId();
       if (!state.vacations) state.vacations = [];
@@ -1254,6 +1256,16 @@ function renderProfileScreen() {
     (syncConnected ? '<button class="btn-danger-outline" id="disconnect-btn" style="margin-top:8px">Disconnect</button>' : '') +
     '</div>' +
 
+    // Appearance
+    '<div class="profile-section">' +
+    '<h3>Appearance</h3>' +
+    '<div class="theme-selector">' +
+    [['system','System'], ['light','Light'], ['dark','Dark']].map(([val, label]) =>
+      '<button class="theme-btn' + ((state.settings.theme || 'system') === val ? ' active' : '') + '" data-theme-val="' + val + '">' +
+      (val === 'system' ? '☀︎⁄☽' : val === 'light' ? '☀︎' : '☽') + ' ' + label + '</button>'
+    ).join('') +
+    '</div></div>' +
+
     // Setup / Danger zone
     '<div class="profile-section">' +
     '<h3>Budget</h3>' +
@@ -1320,6 +1332,16 @@ function renderProfileScreen() {
 
   const currSel = document.getElementById('currency-select');
   if (currSel) currSel.addEventListener('change', () => { s.currency = currSel.value; saveState(); renderExpenseEntry(); });
+
+  // Theme buttons
+  screen.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.settings.theme = btn.dataset.themeVal;
+      saveState();
+      applyTheme();
+      renderProfileScreen();
+    });
+  });
 
   // Pairing
   document.getElementById('generate-code-btn').addEventListener('click', async () => {
@@ -2040,11 +2062,30 @@ function escapeHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+/* ─── THEME ─── */
+function applyTheme(theme) {
+  theme = theme || (state && state.settings && state.settings.theme) || 'system';
+  const html = document.documentElement;
+  if (theme === 'dark') {
+    html.setAttribute('data-theme', 'dark');
+  } else if (theme === 'light') {
+    html.setAttribute('data-theme', 'light');
+  } else {
+    html.removeAttribute('data-theme');
+  }
+}
+
+// React to OS-level changes when user has chosen "system"
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (!state || (state.settings.theme || 'system') === 'system') applyTheme('system');
+});
+
 /* ─── BOOT ─── */
 function boot() {
   const hasData = loadState();
   if (!hasData) state = defaultState();
 
+  applyTheme();
   initSync();
 
   // Nav
