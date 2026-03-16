@@ -9,6 +9,19 @@
   <meta name="theme-color" content="#22223B">
   <meta name="description" content="Budget together, stress less — log shared expenses in seconds">
   <title>Pairly</title>
+  <script>
+    (function(){
+      try {
+        var raw = localStorage.getItem('pairly_v4');
+        if (raw) {
+          var t = JSON.parse(raw);
+          var theme = t && t.settings && t.settings.theme;
+          if (theme === 'dark')  document.documentElement.setAttribute('data-theme','dark');
+          else if (theme === 'light') document.documentElement.setAttribute('data-theme','light');
+        }
+      } catch(e){}
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.svg">
