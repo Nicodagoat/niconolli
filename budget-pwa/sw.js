@@ -4,7 +4,7 @@
    offline expense queue for submissions.
 ══════════════════════════════════════════ */
 
-const CACHE_NAME        = 'pairly-v4';
+const CACHE_NAME        = 'pairly-v5';
 const OFFLINE_QUEUE_KEY = 'pairly_offline_queue';
 
 const PRECACHE_ASSETS = [
