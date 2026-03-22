@@ -341,6 +341,10 @@ body.type-personal .amount-display { color: var(--accent-amount); }
 body.type-unforeseen .currency-symbol,
 body.type-unforeseen .amount-display { color: var(--lilac-ash); }
 
+/* Split section only makes sense for joint expenses */
+body.type-personal .split-section,
+body.type-unforeseen .split-section { display: none; }
+
 .success-feedback {
   font-size: 14px; font-weight: 600; color: var(--success);
   text-align: center; height: 20px; line-height: 20px;

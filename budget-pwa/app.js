@@ -875,13 +875,31 @@ function shakeAmount() {
 }
 
 /* ─── BUDGET TYPE TOGGLE ─── */
+function resetSplitPanel() {
+  paidBy = 'me';
+  splitRatio = 50;
+  const panel = document.getElementById('split-panel');
+  if (panel) panel.hidden = true;
+  const toggleBtn = document.getElementById('split-toggle-btn');
+  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+  const ratioRow = document.getElementById('split-ratio-row');
+  if (ratioRow) ratioRow.hidden = true;
+  document.querySelectorAll('.paid-by-btn').forEach(b => b.classList.toggle('active', b.dataset.paid === 'me'));
+  updateIouPreview();
+}
+
 function initTypeToggle() {
+  // Set body class immediately so CSS rules (e.g. hiding split section) apply on first paint
+  document.body.className = 'type-' + selectedType;
+
   document.querySelectorAll('.type-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.type-toggle-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       selectedType = btn.dataset.type;
       document.body.className = 'type-' + selectedType;
+      // Personal and unforeseen are standalone budgets — split panel doesn't apply
+      if (selectedType !== 'joint') resetSplitPanel();
       renderCategoryPills();
     });
   });
