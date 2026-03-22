@@ -81,33 +81,28 @@
       <!-- Category section: fixed costs + variable in one scrollable row -->
       <div id="category-pills" class="category-pills" role="group" aria-label="Expense category"></div>
 
-      <!-- Split expense panel (collapsed by default) -->
+      <!-- Paid by row (joint only) -->
       <div class="split-section">
-        <button id="split-toggle-btn" class="split-toggle-btn" aria-expanded="false">
-          Split expense <span class="split-chevron">▾</span>
-        </button>
-        <div id="split-panel" class="split-panel" hidden>
-          <div class="paid-by-row">
-            <span class="paid-by-label">Paid by:</span>
-            <button class="paid-by-btn active" data-paid="me">Me</button>
-            <button class="paid-by-btn" data-paid="partner">Partner</button>
-            <button class="paid-by-btn" data-paid="both">Split 50/50</button>
-          </div>
-          <div id="split-ratio-row" class="split-ratio-row" hidden>
-            <div class="split-ratio-labels">
-              <span id="split-me-pct">50%</span>
-              <span class="split-vs">vs</span>
-              <span id="split-partner-pct">50%</span>
-            </div>
-            <input type="range" id="split-ratio" min="0" max="100" value="50" step="5"
-              aria-label="Split ratio">
-            <div class="split-names-row">
-              <span id="split-my-name">Me</span>
-              <span id="split-partner-name">Partner</span>
-            </div>
-          </div>
-          <div id="iou-preview" class="iou-preview" hidden></div>
+        <div class="paid-by-row">
+          <span class="paid-by-label">Paid by</span>
+          <button class="paid-by-btn active" data-paid="me">Me</button>
+          <button class="paid-by-btn" data-paid="partner">Partner</button>
+          <button class="paid-by-btn" data-paid="both">Split</button>
         </div>
+        <div id="split-ratio-row" class="split-ratio-row" hidden>
+          <div class="split-ratio-labels">
+            <span id="split-me-pct">50%</span>
+            <span class="split-vs">vs</span>
+            <span id="split-partner-pct">50%</span>
+          </div>
+          <input type="range" id="split-ratio" min="0" max="100" value="50" step="5"
+            aria-label="Split ratio">
+          <div class="split-names-row">
+            <span id="split-my-name">Me</span>
+            <span id="split-partner-name">Partner</span>
+          </div>
+        </div>
+        <div id="iou-preview" class="iou-preview" hidden></div>
       </div>
 
       <!-- Note input with repeat button -->

@@ -24,6 +24,7 @@ const VAR_CATEGORIES = [
   {name:'Shopping',  icon:'🛍️'},
   {name:'Health',    icon:'💊'},
   {name:'Home',      icon:'🏡'},
+  {name:'Pets',      icon:'🐱'},
   {name:'Other',     icon:'📦'},
 ];
 
@@ -610,16 +611,6 @@ function selectVariableCategory(name) {
 
 /* ─── SPLIT PANEL ─── */
 function initSplitPanel() {
-  const toggleBtn = document.getElementById('split-toggle-btn');
-  const panel = document.getElementById('split-panel');
-  if (!toggleBtn || !panel) return;
-
-  toggleBtn.addEventListener('click', () => {
-    const expanded = toggleBtn.getAttribute('aria-expanded') === 'true';
-    toggleBtn.setAttribute('aria-expanded', !expanded);
-    panel.hidden = expanded;
-  });
-
   // Paid-by buttons
   document.querySelectorAll('.paid-by-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -850,13 +841,8 @@ function submitExpense() {
   paidBy = 'me';
   splitRatio = 50;
   document.querySelectorAll('.paid-by-btn').forEach(b => b.classList.toggle('active', b.dataset.paid === 'me'));
-  // Close + reset split panel fully
-  const splitPanel = document.getElementById('split-panel');
-  if (splitPanel) splitPanel.hidden = true;
-  const splitToggleBtn = document.getElementById('split-toggle-btn');
-  if (splitToggleBtn) splitToggleBtn.setAttribute('aria-expanded', 'false');
-  const splitRatioRow = document.getElementById('split-ratio-row');
-  if (splitRatioRow) splitRatioRow.hidden = true;
+  // Reset split panel
+  resetSplitPanel();
   const slider = document.getElementById('split-ratio');
   if (slider) { slider.value = 50; slider.style.setProperty('--val', '50%'); }
   const smePct = document.getElementById('split-me-pct');
@@ -878,10 +864,6 @@ function shakeAmount() {
 function resetSplitPanel() {
   paidBy = 'me';
   splitRatio = 50;
-  const panel = document.getElementById('split-panel');
-  if (panel) panel.hidden = true;
-  const toggleBtn = document.getElementById('split-toggle-btn');
-  if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
   const ratioRow = document.getElementById('split-ratio-row');
   if (ratioRow) ratioRow.hidden = true;
   document.querySelectorAll('.paid-by-btn').forEach(b => b.classList.toggle('active', b.dataset.paid === 'me'));

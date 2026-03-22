@@ -436,68 +436,55 @@ body.type-unforeseen .split-section { display: none; }
 .category-pill.selected-unforeseen { background: transparent; border-color: var(--lilac-ash); color: var(--lilac-ash); }
 
 /* ─────────────────────────────────────────
-   SPLIT EXPENSE PANEL
+   PAID BY ROW (joint expenses)
 ───────────────────────────────────────── */
 .split-section {
   display: flex;
   flex-direction: column;
   padding: 2px 14px;
+  gap: 6px;
   flex-shrink: 0;
-}
-
-.split-toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: transparent;
-  border: none;
-  color: var(--text-2);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 4px 0;
-  letter-spacing: 0.2px;
-}
-
-.split-chevron { transition: transform 0.2s; display: inline-block; }
-.split-toggle-btn[aria-expanded="true"] .split-chevron { transform: rotate(180deg); }
-
-.split-panel {
-  background: var(--surface);
-  border-radius: 14px;
-  padding: 12px 14px;
-  margin-top: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
 .paid-by-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 8px;
+  background: var(--surface);
+  border-radius: 22px;
+  padding: 5px 6px 5px 12px;
 }
 
-.paid-by-label { font-size: 13px; font-weight: 600; color: var(--text-2); flex-shrink: 0; }
+.paid-by-label {
+  font-size: 12px; font-weight: 600; color: var(--text-2);
+  flex-shrink: 0; flex: 1;
+  letter-spacing: 0.2px;
+}
 
 .paid-by-btn {
-  padding: 7px 12px;
-  border: 2px solid var(--border);
-  border-radius: 18px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 16px;
   background: transparent;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-2);
-  transition: all 0.13s;
+  transition: all 0.15s;
 }
 
 .paid-by-btn.active {
   background: var(--btn-primary-bg);
-  border-color: var(--btn-primary-bg);
   color: var(--white);
+  box-shadow: 0 1px 4px var(--shadow-2);
 }
 
+/* Fix: display:flex on these overrides the HTML hidden attribute */
+.split-ratio-row[hidden], .iou-preview[hidden] { display: none !important; }
+
 .split-ratio-row {
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1588,28 +1575,24 @@ body.type-unforeseen .split-section { display: none; }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Compact mode when split panel is open ── */
-#expense-entry:has(#split-panel:not([hidden])) .amount-area {
+/* ── Compact mode when split ratio slider is open ── */
+#expense-entry:has(#split-ratio-row:not([hidden])) .amount-area {
   padding: 2px 16px 0;
 }
-#expense-entry:has(#split-panel:not([hidden])) .amount-display {
+#expense-entry:has(#split-ratio-row:not([hidden])) .amount-display {
   font-size: 52px;
 }
-#expense-entry:has(#split-panel:not([hidden])) .currency-symbol {
+#expense-entry:has(#split-ratio-row:not([hidden])) .currency-symbol {
   font-size: 24px;
 }
-#expense-entry:has(#split-panel:not([hidden])) .budget-type-toggle {
+#expense-entry:has(#split-ratio-row:not([hidden])) .budget-type-toggle {
   padding: 3px 14px;
 }
-#expense-entry:has(#split-panel:not([hidden])) .split-section {
+#expense-entry:has(#split-ratio-row:not([hidden])) .split-section {
   padding: 1px 14px;
 }
-#expense-entry:has(#split-panel:not([hidden])) .note-row {
+#expense-entry:has(#split-ratio-row:not([hidden])) .note-row {
   padding: 3px 14px;
-}
-#expense-entry:has(#split-panel:not([hidden])) .split-panel {
-  padding: 8px 12px;
-  gap: 7px;
 }
 
 /* ── Numpad: stronger press feedback ── */
