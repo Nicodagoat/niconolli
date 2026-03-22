@@ -734,7 +734,7 @@ function handleNumpadInput(val) {
   // Auto-select fixed cost if amount matches
   if (!isFixedSelected) {
     const amt = parseFloat(amountStr);
-    const match = state.settings.fixedCosts.find(fc => fc.amount === amt);
+    const match = state.settings.fixedCosts.find(fc => Math.abs(fc.amount - amt) < 0.01);
     if (match && !isFixedPaid(match.id)) {
       isFixedSelected = true;
       selectedFixedId = match.id;
@@ -748,7 +748,13 @@ function handleNumpadInput(val) {
 function initSubmitBtn() {
   const btn = document.getElementById('submit-btn');
   if (!btn) return;
-  btn.addEventListener('click', submitExpense);
+  let submitting = false;
+  btn.addEventListener('click', () => {
+    if (submitting) return;
+    submitting = true;
+    submitExpense();
+    setTimeout(() => { submitting = false; }, 800);
+  });
 }
 
 function submitExpense() {
@@ -2131,7 +2137,7 @@ function boot() {
   history.pushState({ app: true }, '');
   window.addEventListener('popstate', (e) => {
     const overlay = document.getElementById('modal-overlay');
-    if (overlay && overlay.classList.contains('active')) {
+    if (overlay && overlay.classList.contains('show')) {
       closeModal();
       history.pushState({ app: true }, '');
     } else if (currentScreen !== 'expense-entry') {

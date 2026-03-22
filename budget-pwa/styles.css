@@ -1078,8 +1078,8 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
 ───────────────────────────────────────── */
 .vacation-banner {
   display: flex; align-items: center; gap: 10px;
-  background: linear-gradient(135deg, #3a7bd5 0%, #0097e6 100%);
-  color: white; padding: 8px 14px; flex-shrink: 0;
+  background: linear-gradient(135deg, var(--dusty-grape) 0%, var(--space-indigo) 100%);
+  color: var(--white); padding: 8px 14px; flex-shrink: 0;
 }
 .vacation-banner[hidden] { display: none; }
 
@@ -1100,13 +1100,13 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
 .vac-active-card {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 16px;
-  background: linear-gradient(135deg, rgba(58,123,213,0.1) 0%, rgba(0,151,230,0.1) 100%);
-  border: 2px solid rgba(58,123,213,0.35); border-radius: 14px;
+  background: var(--tint-joint);
+  border: 2px solid var(--border-med); border-radius: 14px;
   font-size: 15px; font-weight: 600; color: var(--text-1);
 }
 .vac-active-badge {
   font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
-  background: #3a7bd5; color: white; padding: 3px 8px; border-radius: 6px;
+  background: var(--dusty-grape); color: var(--white); padding: 3px 8px; border-radius: 6px;
 }
 
 /* Vacation history row */
@@ -1937,4 +1937,18 @@ body.type-unforeseen .amount-display { color: var(--lilac-ash); }
   transition-property: background-color, border-color, color, box-shadow;
   transition-duration: 0.25s;
   transition-timing-function: ease;
+}
+
+/* ══════════════════════════════════════════
+   FOCUS VISIBLE — keyboard / switch access
+══════════════════════════════════════════ */
+:focus-visible {
+  outline: 2px solid var(--dusty-grape);
+  outline-offset: 2px;
+}
+/* inputs already show a border on focus — suppress duplicate ring */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
