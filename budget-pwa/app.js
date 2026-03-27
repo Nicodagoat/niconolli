@@ -234,11 +234,11 @@ class SyncManager {
     } catch(e) {}
   }
 
-  async initPeer() {
+  async initPeer(customId) {
     if (this.peer) return Promise.resolve(this.peerId);
     await this._loadPeerJS();
     return new Promise((resolve, reject) => {
-      const peerId = this.deviceId.replace(/[^a-z0-9]/gi,'').slice(0, 20).toLowerCase();
+      const peerId = customId || this.deviceId.replace(/[^a-z0-9]/gi,'').slice(0, 20).toLowerCase();
       try {
         this.peer = new Peer(peerId);
         this.peer.on('open', (id) => {
@@ -284,17 +284,15 @@ class SyncManager {
   _setupConn(conn) {
     this.conn = conn;
     conn.on('data', (data) => this._onData(data));
-    conn.on('close', () => {
+    const handleDrop = () => {
       this.conn = null;
       this.updateStatus('offline');
-    });
-    conn.on('error', () => {
-      this.conn = null;
-      this.updateStatus('offline');
-    });
+      if (this._onDisconnectCb) this._onDisconnectCb();
+    };
+    conn.on('close', handleDrop);
+    conn.on('error', handleDrop);
     this.updateStatus('connected');
     this._startHeartbeat();
-    // request state sync from partner
     this.send({ type: 'sync_request', requestFull: true });
   }
 
@@ -328,10 +326,14 @@ class SyncManager {
 
   getPairingCode() {
     if (!this.peerId) return null;
-    return this.peerId.slice(-6).toUpperCase();
+    return this.peerId.toUpperCase();
   }
 
+  onDisconnect(fn) { this._onDisconnectCb = fn; }
+
   disconnect() {
+    clearInterval(this._heartbeatTimer);
+    clearTimeout(this._reconnectTimer);
     if (this.conn) { try { this.conn.close(); } catch(e) {} this.conn = null; }
     if (this.peer) { try { this.peer.destroy(); } catch(e) {} this.peer = null; }
     this.updateStatus('offline');
@@ -341,25 +343,34 @@ class SyncManager {
 /* ─── Sync handlers ─── */
 function initSync() {
   syncMgr = new SyncManager(state.deviceId);
-  syncMgr.onData((packet) => {
-    handleSyncPacket(packet);
+  syncMgr.onData((packet) => handleSyncPacket(packet));
+
+  // Auto-reconnect when connection drops
+  syncMgr.onDisconnect(() => {
+    if (state.pairedPeerId) {
+      syncMgr._reconnectTimer = setTimeout(() => {
+        if (!syncMgr.conn) syncMgr.connect(state.pairedPeerId).catch(() => {});
+      }, 4000);
+    }
   });
 
-  // Flush pending offline queue
-  if (state.pendingSync && state.pendingSync.length > 0) {
-    state.pendingSync.forEach(tx => {
-      syncMgr.send({ type: 'expense', transaction: tx, monthKey: currentMonthKey });
-    });
-    state.pendingSync = [];
-    saveState();
-  }
+  const myPeerId = getOrCreateInviteCode().toLowerCase();
 
-  // If previously paired, try to reconnect
-  if (state.pairedPeerId) {
-    syncMgr.initPeer().then(() => {
+  // Always initialise our peer immediately so we're reachable
+  syncMgr.initPeer(myPeerId).then(() => {
+    // Flush any pending offline queue
+    if (state.pendingSync && state.pendingSync.length > 0) {
+      state.pendingSync.forEach(tx => {
+        syncMgr.send({ type: 'expense', transaction: tx, monthKey: currentMonthKey });
+      });
+      state.pendingSync = [];
+      saveState();
+    }
+    // If previously paired, try to reconnect
+    if (state.pairedPeerId) {
       syncMgr.connect(state.pairedPeerId).catch(() => {});
-    }).catch(() => {});
-  }
+    }
+  }).catch(() => {});
 }
 
 function handleSyncPacket(packet) {
@@ -1249,17 +1260,22 @@ function renderProfileScreen() {
     '<h3>Partner Sync</h3>' +
     '<div class="pair-status-row">' +
     '<div class="pair-status-dot ' + (syncConnected ? 'connected' : 'offline') + '"></div>' +
-    '<span style="font-size:14px;font-weight:600">' + (syncConnected ? '● Connected' : '○ Not connected') + '</span>' +
+    '<span class="pair-status-label">' + (syncConnected ? 'Connected' : 'Not connected') + '</span>' +
     '</div>' +
-    '<div class="pair-code-display" id="my-code-display">' +
-    '<div style="font-size:12px;opacity:.6;margin-bottom:4px">YOUR CODE</div>' +
-    '<div class="pair-code-digits" id="my-pairing-code">------</div>' +
-    '<div class="pair-code-hint">Share this with your partner</div>' +
+    '<div class="pair-code-card" id="my-code-display" title="Tap to share">' +
+    '<div class="pair-code-card-label">Your invite code</div>' +
+    '<div class="pair-code-digits" id="my-pairing-code">' + getOrCreateInviteCode() + '</div>' +
+    '<div class="pair-code-hint">Tap to copy &amp; share</div>' +
     '</div>' +
-    '<button class="btn-secondary" id="generate-code-btn" style="margin-bottom:10px">Generate My Code</button>' +
-    '<input class="pair-code-input" id="partner-code-input" placeholder="Partner\'s code" maxlength="6" inputmode="text" autocomplete="off">' +
-    '<button class="btn-primary" id="connect-partner-btn" style="margin-top:8px;display:block;width:100%">Connect to Partner</button>' +
-    (syncConnected ? '<button class="btn-danger-outline" id="disconnect-btn" style="margin-top:8px">Disconnect</button>' : '') +
+    (!syncConnected
+      ? '<div class="pair-input-wrap">' +
+        '<input class="pair-code-input" id="partner-code-input" ' +
+        'placeholder="Enter partner\'s code" maxlength="6" ' +
+        'inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" ' +
+        'value="' + (state.settings.partnerCode || '') + '">' +
+        '<div id="profile-pair-status" class="profile-pair-status" hidden></div>' +
+        '</div>'
+      : '<button class="btn-danger-outline" id="disconnect-btn" style="margin-top:4px;display:block;width:100%">Disconnect</button>') +
     '</div>' +
 
     // Appearance
@@ -1349,46 +1365,56 @@ function renderProfileScreen() {
     });
   });
 
-  // Pairing
-  document.getElementById('generate-code-btn').addEventListener('click', async () => {
-    const display = document.getElementById('my-pairing-code');
-    if (display) display.textContent = '...';
-    try {
-      await syncMgr.initPeer();
-      const code = syncMgr.getPairingCode();
-      if (display) display.textContent = code || '------';
-      showToast('Your code is ready!', 'success');
-    } catch(e) {
-      if (display) display.textContent = 'Error';
-      showToast('Could not generate code. Check internet.', 'error');
+  // Tap code card → copy & share
+  const codeCard = document.getElementById('my-code-display');
+  if (codeCard) codeCard.addEventListener('click', () => {
+    const myCode = getOrCreateInviteCode();
+    const url = location.origin + location.pathname + '?pair=' + myCode;
+    const text = (state.profile.name || 'Your partner') +
+      ' invites you to track your budget together. Code: ' + myCode;
+    if (navigator.share) {
+      navigator.share({ title: 'Join me on Pairly', text, url }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(url).then(
+        () => showToast('Invite link copied!', 'success'),
+        () => showToast('Your code: ' + myCode, 'info')
+      );
     }
   });
 
-  document.getElementById('connect-partner-btn').addEventListener('click', async () => {
-    const input = document.getElementById('partner-code-input');
-    const code = (input ? input.value.trim().toLowerCase() : '');
-    if (code.length < 4) return showToast('Enter partner\'s code', 'error');
-    showToast('Connecting…', 'info');
-    try {
-      await syncMgr.initPeer();
-      // The partner's peer ID is their device ID prefix - but they share just last 6 chars.
-      // We'll try connecting directly to that code as the peer ID prefix.
-      // This works when their peer ID ends with those 6 chars.
-      // For simplicity, we connect to their full peer ID stored when they shared.
-      await syncMgr.connect(code);
-      state.pairedPeerId = code;
-      saveState();
-      showToast('Connected to partner!', 'success');
-      renderProfileScreen();
-    } catch(e) {
-      showToast('Connection failed. Try again.', 'error');
+  // Auto-connect when 6 chars entered (no button needed)
+  const partnerInput = document.getElementById('partner-code-input');
+  const profilePairStatus = document.getElementById('profile-pair-status');
+  if (partnerInput) {
+    // Pre-fill attempt if a saved code exists but not yet connected
+    if (state.settings.partnerCode && !syncConnected) {
+      partnerInput.value = state.settings.partnerCode;
     }
-  });
+    partnerInput.addEventListener('input', () => {
+      const code = partnerInput.value.replace(/[^a-z0-9]/gi, '').toUpperCase();
+      partnerInput.value = code;
+      if (code.length === 6) {
+        if (profilePairStatus) {
+          profilePairStatus.hidden = false;
+          profilePairStatus.textContent = 'Connecting…';
+          profilePairStatus.className = 'profile-pair-status connecting';
+        }
+        connectWithCode(code, profilePairStatus, () => {
+          if (syncMgr && syncMgr.status === 'connected') {
+            renderProfileScreen();
+          }
+        });
+      } else if (profilePairStatus) {
+        profilePairStatus.hidden = true;
+      }
+    });
+  }
 
   const discBtn = document.getElementById('disconnect-btn');
   if (discBtn) discBtn.addEventListener('click', () => {
     syncMgr.disconnect();
     state.pairedPeerId = null;
+    state.settings.partnerCode = null;
     saveState();
     renderProfileScreen();
     showToast('Disconnected', 'info');
@@ -1627,36 +1653,32 @@ function getOrCreateInviteCode() {
 }
 
 function connectWithCode(partnerCode, statusEl, onSuccess) {
-  // Store partner code — the SyncManager will use it once PeerJS initialises
-  state.settings.partnerCode = partnerCode;
+  const peerId = partnerCode.trim().toLowerCase();
+  // Save the code so auto-reconnect can use it after onboarding
+  state.pairedPeerId = peerId;
+  state.settings.partnerCode = partnerCode.toUpperCase();
   saveState();
 
   const updateStatus = (msg, cls) => {
     if (!statusEl) return;
+    statusEl.hidden = false;
     statusEl.textContent = msg;
     statusEl.className = 'ob-pair-status ' + (cls || '');
   };
 
-  // Try to initialise the peer connection
   if (!syncMgr) { onSuccess && onSuccess(); return; }
 
-  syncMgr.initPeer().then(() => {
-    const myPeerId = syncMgr.peerId;
-    // Derive the partner's likely peer ID from their invite code
-    // Convention: peer ID ends with the invite code (lowercase)
-    // We search for a peer whose ID ends in their code
-    const partnerPeerId = partnerCode.toLowerCase();
-    updateStatus('Reaching partner…', 'connecting');
-    return syncMgr.connect(partnerPeerId);
+  updateStatus('Connecting…', 'connecting');
+  // Our peer is already initialised with our invite code as the peer ID.
+  // The partner's peer ID IS their invite code — connect directly.
+  syncMgr.initPeer(getOrCreateInviteCode().toLowerCase()).then(() => {
+    return syncMgr.connect(peerId);
   }).then(() => {
-    state.pairedPeerId = partnerCode.toLowerCase();
-    saveState();
     updateStatus('Connected! 🎉', 'success');
-    onSuccess && onSuccess();
+    setTimeout(() => onSuccess && onSuccess(), 700);
   }).catch(() => {
-    // Connection failed — still save the code and let them try again from Profile
-    updateStatus('Saved! Will connect when partner is online.', 'saved');
-    setTimeout(onSuccess, 1200);
+    updateStatus('Partner not online yet — will auto-connect when they open the app.', 'saved');
+    setTimeout(() => onSuccess && onSuccess(), 1800);
   });
 }
 

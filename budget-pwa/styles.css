@@ -1001,28 +1001,47 @@ body.type-unforeseen .split-section { display: none; }
 /* Pairing section */
 .pair-status-row {
   display: flex; align-items: center; gap: 10px;
-  padding: 14px; background: var(--bg); border-radius: 14px; margin-bottom: 10px;
+  padding: 12px 14px; background: var(--bg); border-radius: 14px; margin-bottom: 10px;
 }
 .pair-status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.pair-status-dot.connected { background: #6fcf97; }
-.pair-status-dot.offline   { background: rgba(154,140,152,0.5); }
+.pair-status-dot.connected { background: #6fcf97; box-shadow: 0 0 0 3px rgba(111,207,151,.25); }
+.pair-status-dot.offline   { background: rgba(154,140,152,0.4); }
+.pair-status-label { font-size: 14px; font-weight: 600; color: var(--text-1); }
 
-.pair-code-display {
+/* Code card — tappable */
+.pair-code-card {
   background: var(--space-indigo); color: var(--white);
-  border-radius: 16px; padding: 20px; text-align: center; margin-bottom: 10px;
+  border-radius: 18px; padding: 20px; text-align: center; margin-bottom: 10px;
+  cursor: pointer; user-select: none;
+  transition: transform 0.13s, box-shadow 0.13s;
 }
+.pair-code-card:active { transform: scale(0.97); }
+.pair-code-card-label { font-size: 11px; font-weight: 600; opacity: .6; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
 .pair-code-digits {
-  font-size: 40px; font-weight: 700; letter-spacing: 12px;
+  font-size: 42px; font-weight: 700; letter-spacing: 10px;
   font-variant-numeric: tabular-nums;
 }
-.pair-code-hint { font-size: 13px; color: rgba(255,255,255,0.6); margin-top: 8px; }
+.pair-code-hint { font-size: 12px; color: rgba(255,255,255,0.55); margin-top: 8px; }
+
+/* Input + status below card */
+.pair-input-wrap { display: flex; flex-direction: column; gap: 8px; }
 
 .pair-code-input {
   width: 100%; padding: 14px 16px; border: 2px solid var(--border-med); border-radius: 14px;
-  font-size: 26px; font-weight: 700; text-align: center; letter-spacing: 8px;
-  color: var(--text-1); background: var(--surface); outline: none; font-variant-numeric: tabular-nums;
+  font-size: 24px; font-weight: 700; text-align: center; letter-spacing: 8px;
+  color: var(--text-1); background: var(--surface); outline: none;
+  font-variant-numeric: tabular-nums; box-sizing: border-box;
+  text-transform: uppercase;
 }
-.pair-code-input:focus { border-color: var(--text-1); }
+.pair-code-input:focus { border-color: var(--space-indigo); }
+
+.profile-pair-status {
+  font-size: 13px; font-weight: 600; text-align: center; padding: 6px;
+  border-radius: 10px;
+}
+.profile-pair-status.connecting { color: var(--text-2); }
+.profile-pair-status.success    { color: #6fcf97; }
+.profile-pair-status.saved      { color: var(--text-2); }
 
 .profile-actions { display: flex; flex-direction: column; gap: 10px; }
 .archive-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; color: var(--text-1); }
