@@ -47,6 +47,7 @@ const AVATAR_COLORS = [
 ];
 let currentMonthKey = getMonthKey();
 let currentHistoryMonth = getMonthKey();
+let currentHistoryFilter = 'all'; // all | joint | personal | unforeseen
 let amountStr = '0';
 let selectedCategory = 'Food';
 let selectedType = 'joint';
@@ -781,8 +782,38 @@ function updateIouPreview() {
 }
 
 /* ─── EXPENSE ENTRY SCREEN ─── */
+function renderPartnerActivity() {
+  const el = document.getElementById('partner-activity');
+  if (!el) return;
+  if (!state.pairedPeerId) { el.hidden = true; return; }
+
+  const partnerId = state.settings.users.find(u => u.id !== state.settings.currentUser);
+  if (!partnerId) { el.hidden = true; return; }
+
+  // Find partner's most recent transaction across current month
+  const month = state.months[currentMonthKey];
+  const partnerTxs = month ? month.transactions.filter(t => t.userId === partnerId.id) : [];
+  if (!partnerTxs.length) { el.hidden = true; return; }
+
+  const last = partnerTxs[partnerTxs.length - 1];
+  const ago = timeAgo(new Date(last.date));
+  const icon = last.isFixed ? '🔒' : (VAR_CATEGORIES.find(c => c.name === last.category) || {icon:'📦'}).icon;
+  el.hidden = false;
+  el.textContent = partnerId.name + ' added ' + icon + ' ' + fmt(last.amount, state.settings.currency) + ' · ' + last.category + ' · ' + ago;
+}
+
+function timeAgo(date) {
+  const mins = Math.floor((Date.now() - date) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.floor(hrs / 24) + 'd ago';
+}
+
 function renderExpenseEntry() {
   renderMiniStatus();
+  renderPartnerActivity();
   renderDueSoonBar();
   renderVacationBanner();
   renderCategoryPills();
@@ -1030,6 +1061,38 @@ function initRepeatBtn() {
   });
 }
 
+/* ─── SPENDING VELOCITY & MONTH DELTA ─── */
+function getPrevMonthKey(mk) {
+  const [y, m] = mk.split('-').map(Number);
+  return m === 1 ? (y - 1) + '-12' : y + '-' + String(m - 1).padStart(2, '0');
+}
+
+function buildVelocityRow(t, currency) {
+  if (t.variableTotal === 0 || t.variableSpent === 0) return '';
+  const today = dayOfMonth();
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const dailyRate = t.variableSpent / today;
+  const projected = Math.round(dailyRate * daysInMonth * 100) / 100;
+  const delta = projected - t.variableTotal;
+  const isOver = delta > 0.5;
+
+  const prevKey = getPrevMonthKey(currentMonthKey);
+  const prevTotals = getFixedTotals(prevKey);
+  const hasPrev = state.months[prevKey] && prevTotals.variableSpent > 0;
+  const momDelta = hasPrev ? Math.round((t.variableSpent - prevTotals.variableSpent) * 100) / 100 : null;
+  const momLabel = momDelta !== null
+    ? '<span class="mom-delta ' + (momDelta > 0 ? 'over' : 'under') + '">' +
+      (momDelta >= 0 ? '+' : '−') + fmt(Math.abs(momDelta), currency) + ' vs last mo</span>'
+    : '';
+
+  return '<div class="velocity-row">' +
+    '<span class="velocity-chip ' + (isOver ? 'over' : 'ok') + '">' +
+    (isOver
+      ? '⚠️ Projected +' + fmt(delta, currency) + ' over'
+      : '✓ On track · ' + fmt(Math.round(dailyRate * 100) / 100, currency) + '/day') +
+    '</span>' + momLabel + '</div>';
+}
+
 /* ─── CATEGORY BREAKDOWN ─── */
 function buildCategoryBreakdown(txs, currency) {
   const varTxs = txs.filter(t => t.type === 'joint' && !t.isFixed);
@@ -1132,7 +1195,9 @@ function renderStatusScreen() {
     '<div class="budget-split-item"><div class="budget-split-label">Fixed Reserved</div><div class="budget-split-value">' + fmt(t.fixedTotal, currency) + '</div></div>' +
     '<div class="budget-split-item"><div class="budget-split-label">Variable Spent</div><div class="budget-split-value">' + fmt(t.variableSpent, currency) + '</div></div>' +
     '<div class="budget-split-item"><div class="budget-split-label">Available</div><div class="budget-split-value">' + fmt(t.variableRemaining, currency) + '</div></div>' +
-    '</div></div>' +
+    '</div>' +
+    buildVelocityRow(t, currency) +
+    '</div>' +
 
     fixedListHtml +
     iouHtml +
@@ -1229,18 +1294,36 @@ function renderHistoryScreen() {
       '</div>'
     : '';
 
+  const filterTabs = ['all','joint','personal','unforeseen'];
+  const filterLabels = {all:'All', joint:'Joint', personal:'Mine', unforeseen:'Unforeseen'};
+  const filterHtml = '<div class="history-filter-tabs">' +
+    filterTabs.map(f =>
+      '<button class="history-filter-btn' + (f === currentHistoryFilter ? ' active' : '') + '" data-filter="' + f + '">' +
+      filterLabels[f] + '</button>'
+    ).join('') +
+    '</div>';
+
   screen.innerHTML =
     '<div class="history-header">' +
     '<h2>History</h2>' +
     '<input type="search" class="search-input" id="history-search" placeholder="Search…" autocomplete="off">' +
     '</div>' +
     monthNavHtml +
+    filterHtml +
     '<div id="history-list"></div>';
 
   screen.querySelectorAll('.month-nav-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       currentHistoryMonth = btn.dataset.mk;
       renderHistoryScreen();
+    });
+  });
+
+  screen.querySelectorAll('.history-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentHistoryFilter = btn.dataset.filter;
+      screen.querySelectorAll('.history-filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === currentHistoryFilter));
+      renderHistoryList(txs, document.getElementById('history-search')?.value || '');
     });
   });
 
@@ -1274,11 +1357,12 @@ function renderHistoryList(txs, query) {
   const list = document.getElementById('history-list');
   if (!list) return;
   const q = (query || '').toLowerCase().trim();
-  const filtered = q ? txs.filter(t =>
+  const typeFiltered = currentHistoryFilter === 'all' ? txs : txs.filter(t => t.type === currentHistoryFilter);
+  const filtered = q ? typeFiltered.filter(t =>
     (t.category||'').toLowerCase().includes(q) ||
     (t.note||'').toLowerCase().includes(q) ||
     String(t.amount).includes(q)
-  ) : txs;
+  ) : typeFiltered;
 
   if (!filtered.length) {
     list.innerHTML = '<div class="no-transactions">' + (q ? 'No matches' : 'No expenses yet') + '</div>';

@@ -2016,3 +2016,55 @@ textarea:focus-visible {
 .hms-chip.joint     { background: rgba(74,78,105,0.12); color: var(--dusty-grape); }
 .hms-chip.personal  { background: rgba(201,173,167,0.2); color: var(--almond-silk-dark, #8b6e68); }
 .hms-chip.unforeseen{ background: rgba(154,140,152,0.15); color: var(--lilac-ash); }
+
+/* ══════════════════════════════════════════
+   VELOCITY ROW (Status screen)
+══════════════════════════════════════════ */
+.velocity-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.velocity-chip {
+  font-size: 12px; font-weight: 700; padding: 4px 10px;
+  border-radius: 12px; flex-shrink: 0;
+}
+.velocity-chip.ok   { background: rgba(45,106,79,0.1); color: #2D6A4F; }
+.velocity-chip.over { background: rgba(192,57,43,0.1); color: #C0392B; }
+
+.mom-delta {
+  font-size: 12px; font-weight: 600;
+}
+.mom-delta.over  { color: #C0392B; }
+.mom-delta.under { color: #2D6A4F; }
+
+/* ══════════════════════════════════════════
+   HISTORY FILTER TABS
+══════════════════════════════════════════ */
+.history-filter-tabs {
+  display: flex; gap: 6px; padding: 0 0 12px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.history-filter-tabs::-webkit-scrollbar { display: none; }
+
+.history-filter-btn {
+  padding: 6px 14px; border: none; border-radius: 16px;
+  background: var(--surface); color: var(--text-2);
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+  transition: all 0.15s;
+}
+.history-filter-btn.active {
+  background: var(--space-indigo); color: var(--white);
+}
+
+/* ══════════════════════════════════════════
+   PARTNER ACTIVITY STRIP (Expense entry)
+══════════════════════════════════════════ */
+.partner-activity {
+  font-size: 12px; font-weight: 600; color: var(--text-2);
+  padding: 6px 14px;
+  background: var(--surface);
+  border-radius: 10px;
+  margin: 0 14px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
