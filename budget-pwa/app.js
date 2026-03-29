@@ -293,6 +293,8 @@ class SyncManager {
     conn.on('error', handleDrop);
     this.updateStatus('connected');
     this._startHeartbeat();
+    if (this._onConnectCb) this._onConnectCb();
+    // Both sides: request partner's state AND send our own
     this.send({ type: 'sync_request', requestFull: true });
   }
 
@@ -310,7 +312,11 @@ class SyncManager {
   send(data) {
     const packet = { ...data, deviceId: this.deviceId, timestamp: Date.now() };
     if (this.bc) { try { this.bc.postMessage(packet); } catch(e) {} }
-    if (this.conn && this.conn.open) { try { this.conn.send(packet); } catch(e) {} }
+    let delivered = false;
+    if (this.conn && this.conn.open) {
+      try { this.conn.send(packet); delivered = true; } catch(e) {}
+    }
+    return delivered;
   }
 
   _onData(packet) {
@@ -318,6 +324,8 @@ class SyncManager {
   }
 
   onData(fn) { this.listeners.push(fn); }
+
+  onConnect(fn) { this._onConnectCb = fn; }
 
   updateStatus(status) {
     this.status = status;
@@ -345,6 +353,14 @@ function initSync() {
   syncMgr = new SyncManager(state.deviceId);
   syncMgr.onData((packet) => handleSyncPacket(packet));
 
+  // Every time a connection opens: flush queued offline expenses + push our state
+  syncMgr.onConnect(() => {
+    flushPendingSync();
+    // Proactively push our current month so partner gets it without asking
+    const month = ensureMonth(currentMonthKey);
+    syncMgr.send({ type: 'state_sync', monthKey: currentMonthKey, month });
+  });
+
   // Auto-reconnect when connection drops
   syncMgr.onDisconnect(() => {
     if (state.pairedPeerId) {
@@ -358,15 +374,7 @@ function initSync() {
 
   // Always initialise our peer immediately so we're reachable
   syncMgr.initPeer(myPeerId).then(() => {
-    // Flush any pending offline queue
-    if (state.pendingSync && state.pendingSync.length > 0) {
-      state.pendingSync.forEach(tx => {
-        syncMgr.send({ type: 'expense', transaction: tx, monthKey: currentMonthKey });
-      });
-      state.pendingSync = [];
-      saveState();
-    }
-    // If previously paired, try to reconnect
+    // If previously paired, try to reconnect (onConnect will flush + push state)
     if (state.pairedPeerId) {
       syncMgr.connect(state.pairedPeerId).catch(() => {});
     }
@@ -439,14 +447,25 @@ function handleSyncPacket(packet) {
 
 function broadcastExpense(tx, monthKey) {
   if (!syncMgr) return;
-  const packet = { type: 'expense', transaction: tx, monthKey: monthKey || currentMonthKey };
-  try {
-    syncMgr.send(packet);
-  } catch(e) {
-    // queue for later
-    state.pendingSync.push(tx);
-    saveState();
+  const delivered = syncMgr.send({ type: 'expense', transaction: tx, monthKey: monthKey || currentMonthKey });
+  if (!delivered) {
+    // Not connected — queue for when partner comes online
+    if (!state.pendingSync.find(t => t.id === tx.id)) {
+      state.pendingSync.push(tx);
+      saveState();
+    }
   }
+}
+
+function flushPendingSync() {
+  if (!syncMgr || !state.pendingSync || !state.pendingSync.length) return;
+  const stillPending = [];
+  state.pendingSync.forEach(tx => {
+    const delivered = syncMgr.send({ type: 'expense', transaction: tx, monthKey: currentMonthKey });
+    if (!delivered) stillPending.push(tx);
+  });
+  state.pendingSync = stillPending;
+  saveState();
 }
 
 /* ─── Render sync chip ─── */
