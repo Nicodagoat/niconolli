@@ -88,7 +88,8 @@ function defaultState() {
     pendingSync: [],
     activeVacation: null,
     vacations: [],
-    roleAssigned: false,   // true once user1/user2 role is negotiated with partner
+    roleAssigned: false,
+    budgetUpdatedAt: 0,   // unix ms — used to resolve joint-budget conflicts on sync
     // Onboarding / profile
     onboarded: false,
     profile: { name: '', color: AVATAR_COLORS[0] },
@@ -152,6 +153,7 @@ function loadState() {
       if (!state.inviteCode) state.inviteCode = null;
       // roleAssigned: existing paired users keep their current role
       if (state.roleAssigned === undefined) state.roleAssigned = !!state.pairedPeerId;
+      if (!state.budgetUpdatedAt) state.budgetUpdatedAt = 0;
       // Migrate user names: if they were set from real onboarding, mark onboarded
       if (!state.onboarded && state.settings.users[0].name !== 'You' && state.settings.users[0].name !== 'Alex') {
         state.profile.name = state.settings.users[0].name;
@@ -510,6 +512,32 @@ function handleSyncPacket(packet) {
       }
       break;
     }
+    case 'budget_sync': {
+      // Partner deliberately changed the joint budget — adopt it if it's newer than ours
+      const theirTs = packet.budgetUpdatedAt || 0;
+      if (theirTs > (state.budgetUpdatedAt || 0)) {
+        const mk    = packet.monthKey || currentMonthKey;
+        const month = ensureMonth(mk);
+        // Joint budget (shared between both partners)
+        if (typeof packet.jointTotal === 'number') month.joint.total = packet.jointTotal;
+        if (Array.isArray(packet.fixedCosts))       state.settings.fixedCosts = packet.fixedCosts;
+        if (packet.currency)                        state.settings.currency = packet.currency;
+        state.budgetUpdatedAt = theirTs;
+      }
+      // Always store partner's personal budget for display (read-only on our side)
+      if (packet.myUserId && typeof packet.myPersonalTotal === 'number') {
+        const mk       = packet.monthKey || currentMonthKey;
+        const month    = ensureMonth(mk);
+        const partnerId = packet.myUserId;   // what they call themselves = partner's slot
+        if (month.personal[partnerId] !== undefined) {
+          month.personal[partnerId].total = packet.myPersonalTotal;
+        }
+      }
+      saveState();
+      renderCurrentScreen();
+      renderMiniStatus();
+      break;
+    }
     case 'full_sync': {
       applyFullSync(packet);
       // Reply once so partner also merges our state
@@ -614,6 +642,7 @@ function sendFullSync(isReply) {
     type: 'full_sync',
     isReply: !!isReply,
     hasData: !!(myMonth && myMonth.joint.total > 0),
+    budgetUpdatedAt: state.budgetUpdatedAt || 0,
     settings: {
       fixedCosts: state.settings.fixedCosts,
       currency: state.settings.currency,
@@ -623,6 +652,27 @@ function sendFullSync(isReply) {
     myUserId: state.settings.currentUser,
     vacations: state.vacations,
     activeVacation: state.activeVacation,
+  });
+}
+
+/* ─── Broadcast joint budget changes to partner ─── */
+function broadcastBudgetSync() {
+  if (!syncMgr) return;
+  const month = state.months[currentMonthKey];
+  const me    = state.settings.currentUser;
+  state.budgetUpdatedAt = Date.now();
+  saveState();
+  syncMgr.send({
+    type: 'budget_sync',
+    budgetUpdatedAt: state.budgetUpdatedAt,
+    monthKey: currentMonthKey,
+    // Joint budget — shared
+    jointTotal:  month ? month.joint.total : 0,
+    fixedCosts:  state.settings.fixedCosts,
+    currency:    state.settings.currency,
+    // Sender's own personal budget (for display on partner's status screen — read-only)
+    myUserId:        me,
+    myPersonalTotal: month && month.personal[me] ? month.personal[me].total : 0,
   });
 }
 
@@ -662,20 +712,25 @@ function applyFullSync(packet) {
     if (!pMonth) return;
     const mine = ensureMonth(mk);
 
-    // Adopt joint budget total
-    if (mine.joint.total === 0 && pMonth.joint.total > 0) {
+    // Joint budget: adopt if mine is empty, or partner's budget timestamp is newer
+    const theirBudgetTs = packet.budgetUpdatedAt || 0;
+    const myBudgetTs    = state.budgetUpdatedAt  || 0;
+    const adoptJoint    = (mine.joint.total === 0 && pMonth.joint.total > 0)
+                        || (theirBudgetTs > myBudgetTs && pMonth.joint.total > 0);
+    if (adoptJoint) {
       mine.joint.total     = pMonth.joint.total;
       mine.joint.allocated = { ...(pMonth.joint.allocated || {}) };
-    }
-
-    // Adopt partner's personal budget for their userId slot
-    const pPartnerUserId = packet.myUserId; // what THEY call themselves
-    if (pMonth.personal && pMonth.personal[pPartnerUserId]) {
-      const theirTotal = pMonth.personal[pPartnerUserId].total || 0;
-      if (mine.personal[partnerId] && mine.personal[partnerId].total === 0 && theirTotal > 0) {
-        mine.personal[partnerId].total = theirTotal;
+      if (theirBudgetTs > myBudgetTs) {
+        // Partner's budget settings are more recent — adopt fixed costs & currency too
+        state.settings.fixedCosts = packet.settings.fixedCosts || state.settings.fixedCosts;
+        state.settings.currency   = packet.settings.currency   || state.settings.currency;
+        state.budgetUpdatedAt     = theirBudgetTs;
       }
     }
+
+    // Personal budgets are PRIVATE — each person sets their own via the wizard.
+    // We only sync the partner's personal total for read-only display on the status screen,
+    // and only if they have explicitly broadcast it via budget_sync (not during full_sync).
 
     // Merge transactions (dedup by id)
     const existingIds = new Set(mine.transactions.map(t => t.id));
@@ -2393,6 +2448,7 @@ function renderWizardStep() {
       document.getElementById('wizard-back').addEventListener('click', () => { wizardStep--; renderWizardStep(); });
       document.getElementById('wizard-finish').addEventListener('click', () => {
         saveState();
+        broadcastBudgetSync(); // push joint budget + fixed costs to partner
         document.getElementById('bottom-nav').style.display = '';
         showScreen('expense-entry');
       });
