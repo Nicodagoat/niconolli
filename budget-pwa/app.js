@@ -1738,15 +1738,28 @@ function renderProfileScreen() {
     renderWizardStep();
   });
 
-  document.getElementById('reset-month-btn').addEventListener('click', () => {
-    if (!confirm('Reset all expenses for this month? This cannot be undone.')) return;
-    const month = ensureMonth(currentMonthKey);
-    month.transactions = [];
-    month.fixedPaid = {};
-    month.ious = [];
-    saveState();
-    showToast('Month reset', 'success');
-    showScreen('expense-entry');
+  document.getElementById('reset-month-btn').addEventListener('click', function() {
+    const btn = this;
+    if (btn._armed) {
+      clearTimeout(btn._armTimer);
+      btn._armed = false;
+      btn.textContent = btn._origText;
+      const month = ensureMonth(currentMonthKey);
+      month.transactions = [];
+      month.fixedPaid = {};
+      month.ious = [];
+      saveState();
+      showToast('Month reset', 'success');
+      showScreen('expense-entry');
+    } else {
+      btn._origText = btn.textContent;
+      btn._armed = true;
+      btn.textContent = 'Tap again to confirm';
+      btn._armTimer = setTimeout(() => {
+        btn._armed = false;
+        btn.textContent = btn._origText;
+      }, 3000);
+    }
   });
 
   // Vacation bindings
@@ -1964,11 +1977,12 @@ function getOrCreateInviteCode() {
 function connectWithCode(partnerCode, statusEl, onSuccess) {
   const peerId = partnerCode.trim().toLowerCase();
 
+  const _baseClass = statusEl ? (statusEl.dataset.baseClass || statusEl.className.split(' ')[0] || 'ob-pair-status') : 'ob-pair-status';
   const updateStatus = (msg, cls) => {
     if (!statusEl) return;
     statusEl.hidden = false;
     statusEl.textContent = msg;
-    statusEl.className = 'ob-pair-status ' + (cls || '');
+    statusEl.className = _baseClass + (cls ? ' ' + cls : '');
   };
 
   if (!syncMgr) {
@@ -2547,7 +2561,7 @@ function boot() {
 
       // SW messages
       navigator.serviceWorker.addEventListener('message', evt => {
-        if (evt.data && evt.data.type === 'SYNC_COMPLETE') updateSyncChip('online');
+        if (evt.data && evt.data.type === 'SYNC_COMPLETE') renderSyncChip('connected');
       });
 
       // When SW activates (after skipWaiting), reload to use new version

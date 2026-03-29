@@ -2061,6 +2061,7 @@ textarea:focus-visible {
    PARTNER ACTIVITY STRIP (Expense entry)
 ══════════════════════════════════════════ */
 .partner-activity {
+  display: block;
   font-size: 12px; font-weight: 600; color: var(--text-2);
   padding: 6px 14px;
   background: var(--surface);
@@ -2068,6 +2069,7 @@ textarea:focus-visible {
   margin: 0 14px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.partner-activity[hidden] { display: none; }
 
 /* ══════════════════════════════════════════
    UPDATE BANNER
