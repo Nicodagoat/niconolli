@@ -88,6 +88,7 @@ function defaultState() {
     pendingSync: [],
     activeVacation: null,
     vacations: [],
+    roleAssigned: false,   // true once user1/user2 role is negotiated with partner
     // Onboarding / profile
     onboarded: false,
     profile: { name: '', color: AVATAR_COLORS[0] },
@@ -149,6 +150,8 @@ function loadState() {
       if (state.onboarded === undefined) state.onboarded = false;
       if (!state.profile) state.profile = { name: '', color: AVATAR_COLORS[0] };
       if (!state.inviteCode) state.inviteCode = null;
+      // roleAssigned: existing paired users keep their current role
+      if (state.roleAssigned === undefined) state.roleAssigned = !!state.pairedPeerId;
       // Migrate user names: if they were set from real onboarding, mark onboarded
       if (!state.onboarded && state.settings.users[0].name !== 'You' && state.settings.users[0].name !== 'Alex') {
         state.profile.name = state.settings.users[0].name;
@@ -251,7 +254,17 @@ class SyncManager {
     return new Promise((resolve, reject) => {
       const peerId = customId || this.deviceId.replace(/[^a-z0-9]/gi,'').slice(0, 20).toLowerCase();
       try {
-        this.peer = new Peer(peerId);
+        this.peer = new Peer(peerId, {
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' },
+              { urls: 'stun:stun3.l.google.com:19302' },
+            ]
+          },
+          debug: 0,
+        });
         this.peer.on('open', (id) => {
           this.peerId = id;
           this.updateStatus('ready');
@@ -305,8 +318,7 @@ class SyncManager {
     this.updateStatus('connected');
     this._startHeartbeat();
     if (this._connectListeners) this._connectListeners.forEach(fn => fn());
-    // Both sides: request partner's state AND send our own
-    this.send({ type: 'sync_request', requestFull: true });
+    // full_sync sent by initSync.onConnect (registered as _connectListener above)
   }
 
   _startHeartbeat() {
@@ -370,9 +382,7 @@ function initSync() {
   // Every time a connection opens: flush queued offline expenses + push our state
   syncMgr.onConnect(() => {
     flushPendingSync();
-    // Proactively push our current month so partner gets it without asking
-    const month = ensureMonth(currentMonthKey);
-    syncMgr.send({ type: 'state_sync', monthKey: currentMonthKey, month });
+    sendFullSync(false); // full state exchange on every connect
   });
 
   // Auto-reconnect with exponential backoff (4s → 8s → 16s → 32s → cap 60s)
@@ -500,6 +510,12 @@ function handleSyncPacket(packet) {
       }
       break;
     }
+    case 'full_sync': {
+      applyFullSync(packet);
+      // Reply once so partner also merges our state
+      if (!packet.isReply) sendFullSync(true);
+      break;
+    }
     case 'heartbeat':
       break;
   }
@@ -554,6 +570,144 @@ function flushPendingSync() {
   });
   state.pendingSync = stillPending;
   saveState();
+}
+
+/* ─── QR Code library (lazy-loaded from CDN) ─── */
+function loadQRLib() {
+  if (typeof QRCode !== 'undefined') return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function renderQRCode(containerId, url) {
+  loadQRLib().then(() => {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.innerHTML = '';
+    try {
+      new QRCode(el, {
+        text: url,
+        width: 200, height: 200,
+        colorDark: '#22223B',
+        colorLight: '#FFFFFF',
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+    } catch(e) {
+      el.innerHTML = '<div class="qr-fallback">QR unavailable<br>Share the code below</div>';
+    }
+  }).catch(() => {
+    const el = document.getElementById(containerId);
+    if (el) el.innerHTML = '<div class="qr-fallback">QR unavailable</div>';
+  });
+}
+
+/* ─── Full state sync — sent once per connection ─── */
+function sendFullSync(isReply) {
+  if (!syncMgr) return;
+  const myMonth = state.months[currentMonthKey];
+  syncMgr.send({
+    type: 'full_sync',
+    isReply: !!isReply,
+    hasData: !!(myMonth && myMonth.joint.total > 0),
+    settings: {
+      fixedCosts: state.settings.fixedCosts,
+      currency: state.settings.currency,
+    },
+    months: state.months,
+    userName: getMyName(),
+    myUserId: state.settings.currentUser,
+    vacations: state.vacations,
+    activeVacation: state.activeVacation,
+  });
+}
+
+function applyFullSync(packet) {
+  const iHaveData = Object.values(state.months).some(
+    m => m && m.joint && m.joint.total > 0
+  );
+  const partnerHasData = packet.hasData;
+
+  // ── Role negotiation (only once per pairing) ──────────────────────────
+  if (!state.roleAssigned) {
+    if (partnerHasData && !iHaveData) {
+      // I'm the joiner — become the complement of my partner's userId
+      state.settings.currentUser = packet.myUserId === 'user1' ? 'user2' : 'user1';
+    }
+    // Either way, role is now settled
+    state.roleAssigned = true;
+  }
+
+  // ── Partner name ──────────────────────────────────────────────────────
+  const myId      = state.settings.currentUser;
+  const partnerId = myId === 'user1' ? 'user2' : 'user1';
+  const partnerEntry = state.settings.users.find(u => u.id === partnerId);
+  if (partnerEntry && packet.userName &&
+      (partnerEntry.name === 'Partner' || partnerEntry.name === 'You' || !partnerEntry.name)) {
+    partnerEntry.name = packet.userName;
+  }
+
+  // ── Budget settings (adopt partner's if I have none) ──────────────────
+  if (partnerHasData && !iHaveData) {
+    state.settings.fixedCosts = packet.settings.fixedCosts || [];
+    state.settings.currency   = packet.settings.currency || state.settings.currency;
+  }
+
+  // ── Merge all months ──────────────────────────────────────────────────
+  Object.entries(packet.months || {}).forEach(([mk, pMonth]) => {
+    if (!pMonth) return;
+    const mine = ensureMonth(mk);
+
+    // Adopt joint budget total
+    if (mine.joint.total === 0 && pMonth.joint.total > 0) {
+      mine.joint.total     = pMonth.joint.total;
+      mine.joint.allocated = { ...(pMonth.joint.allocated || {}) };
+    }
+
+    // Adopt partner's personal budget for their userId slot
+    const pPartnerUserId = packet.myUserId; // what THEY call themselves
+    if (pMonth.personal && pMonth.personal[pPartnerUserId]) {
+      const theirTotal = pMonth.personal[pPartnerUserId].total || 0;
+      if (mine.personal[partnerId] && mine.personal[partnerId].total === 0 && theirTotal > 0) {
+        mine.personal[partnerId].total = theirTotal;
+      }
+    }
+
+    // Merge transactions (dedup by id)
+    const existingIds = new Set(mine.transactions.map(t => t.id));
+    (pMonth.transactions || []).forEach(tx => {
+      if (!existingIds.has(tx.id)) mine.transactions.push(tx);
+    });
+
+    // Merge fixedPaid + ious
+    Object.assign(mine.fixedPaid, pMonth.fixedPaid || {});
+    const existingIouIds = new Set(mine.ious.map(i => i.id));
+    (pMonth.ious || []).forEach(iou => {
+      if (!existingIouIds.has(iou.id)) mine.ious.push(iou);
+    });
+  });
+
+  // ── Merge vacations ───────────────────────────────────────────────────
+  if (Array.isArray(packet.vacations)) {
+    const existingVIds = new Set(state.vacations.map(v => v.id));
+    packet.vacations.forEach(v => { if (!existingVIds.has(v.id)) state.vacations.push(v); });
+  }
+  if (packet.activeVacation && !state.activeVacation) {
+    state.activeVacation = packet.activeVacation;
+  }
+
+  saveState();
+
+  if (partnerHasData && !iHaveData) {
+    showToast('Budget synced from ' + (packet.userName || 'partner') + ' 🎉', 'success');
+  }
+
+  renderCurrentScreen();
+  renderMiniStatus();
 }
 
 /* ─── Render sync chip ─── */
@@ -1572,10 +1726,13 @@ function renderProfileScreen() {
     '<div class="pair-status-dot ' + (syncConnected ? 'connected' : 'offline') + '"></div>' +
     '<span class="pair-status-label">' + (syncConnected ? 'Connected' : 'Not connected') + '</span>' +
     '</div>' +
-    '<div class="pair-code-card" id="my-code-display" title="Tap to share">' +
+    '<div class="pair-code-card" id="my-code-display" title="Tap to copy">' +
     '<div class="pair-code-card-label">Your invite code</div>' +
-    '<div class="pair-code-digits" id="my-pairing-code">' + getOrCreateInviteCode() + '</div>' +
-    '<div class="pair-code-hint">Tap to copy &amp; share</div>' +
+    '<div class="pair-code-digits">' + getOrCreateInviteCode() + '</div>' +
+    '<div class="pair-code-actions">' +
+      '<button class="show-qr-btn" id="show-qr-btn">📷 Show QR</button>' +
+      '<span class="pair-code-hint">Tap to copy</span>' +
+    '</div>' +
     '</div>' +
     (!syncConnected
       ? '<div class="pair-input-wrap">' +
@@ -1679,7 +1836,8 @@ function renderProfileScreen() {
 
   // Tap code card → copy & share
   const codeCard = document.getElementById('my-code-display');
-  if (codeCard) codeCard.addEventListener('click', () => {
+  if (codeCard) codeCard.addEventListener('click', (e) => {
+    if (e.target.closest('#show-qr-btn')) return; // handled below
     const myCode = getOrCreateInviteCode();
     const url = location.origin + location.pathname + '?pair=' + myCode;
     const text = (state.profile.name || 'Your partner') +
@@ -1692,6 +1850,35 @@ function renderProfileScreen() {
         () => showToast('Your code: ' + myCode, 'info')
       );
     }
+  });
+
+  // QR code modal
+  const qrBtn = document.getElementById('show-qr-btn');
+  if (qrBtn) qrBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const myCode = getOrCreateInviteCode();
+    const shareUrl = location.origin + location.pathname + '?pair=' + myCode;
+    showModal(
+      '<div class="detail-modal" style="align-items:center;text-align:center">' +
+      '<div class="modal-handle"></div>' +
+      '<h3 style="margin-bottom:4px">Scan to connect</h3>' +
+      '<p style="font-size:13px;color:var(--text-2);margin:0 0 16px">Partner scans this with their phone camera</p>' +
+      '<div id="profile-qr-container" class="profile-qr-container"></div>' +
+      '<div class="profile-qr-code-text">' + myCode + '</div>' +
+      '<button class="ob-share-btn" id="modal-share-btn" style="margin-top:12px">📤 Share invite link</button>' +
+      '</div>'
+    );
+    renderQRCode('profile-qr-container', shareUrl);
+    document.getElementById('modal-share-btn').addEventListener('click', () => {
+      const text = (state.profile.name || 'Your partner') + ' invites you to Pairly. Code: ' + myCode;
+      if (navigator.share) {
+        navigator.share({ title: 'Join me on Pairly', text, url: shareUrl }).catch(() => {});
+      } else {
+        navigator.clipboard.writeText(shareUrl)
+          .then(() => showToast('Link copied!', 'success'))
+          .catch(() => showToast('Code: ' + myCode, 'info'));
+      }
+    });
   });
 
   // Auto-connect when 6 chars entered (no button needed)
@@ -1888,78 +2075,98 @@ function renderOnboardProfile(content) {
 
 function renderOnboardPairing(content) {
   const myCode = getOrCreateInviteCode();
-  // Pre-fill if opened via share link
+  const shareUrl = location.origin + location.pathname + '?pair=' + myCode;
   const pairParam = new URLSearchParams(location.search).get('pair');
   if (pairParam) history.replaceState({ app: true }, '', location.pathname);
 
   content.innerHTML =
-    '<div class="ob-step-wrap">' +
+    '<div class="ob-step-wrap ob-pair-wrap">' +
       '<div class="ob-step-label">Step 2 of 2</div>' +
-      '<h2 class="ob-step-title">Connect your partner</h2>' +
-      '<p class="ob-step-sub">Share your code so you can track together in real time</p>' +
+      '<h2 class="ob-step-title">Connect with your partner</h2>' +
+      '<p class="ob-step-sub">Ask them to scan your QR code, or share your invite link</p>' +
 
-      '<div class="ob-pair-card">' +
-        '<div class="ob-pair-card-label">Your invite code</div>' +
-        '<div class="ob-pair-code" id="ob-pair-code">' + myCode + '</div>' +
-        '<button class="ob-share-btn" id="ob-share-btn">Share invite link</button>' +
+      // QR + code card
+      '<div class="ob-qr-card">' +
+        '<div id="ob-qr-container" class="ob-qr-container"></div>' +
+        '<div class="ob-qr-code-text">' + myCode + '</div>' +
+        '<button class="ob-share-btn" id="ob-share-btn">📤 Share invite link</button>' +
       '</div>' +
 
-      '<div class="ob-pair-divider"><span>or enter partner\'s code</span></div>' +
+      '<div class="ob-pair-divider"><span>— or enter their code —</span></div>' +
 
-      '<div class="setup-field">' +
+      // Enter partner code
+      '<div class="setup-field ob-code-field">' +
         '<input type="text" id="ob-partner-code" class="ob-code-input" ' +
-          'value="' + (pairParam ? escapeHtml(pairParam) : '') + '" ' +
-          'placeholder="e.g. A3BX7K" ' +
-          'maxlength="8" autocomplete="off" autocorrect="off" ' +
+          'value="' + (pairParam ? escapeHtml(pairParam.toUpperCase()) : '') + '" ' +
+          'placeholder="Partner\'s code  e.g. A3BX7K" ' +
+          'maxlength="6" autocomplete="off" autocorrect="off" ' +
           'autocapitalize="characters" spellcheck="false" inputmode="text">' +
       '</div>' +
 
       '<div id="ob-pair-status" class="ob-pair-status" hidden></div>' +
 
-      '<div class="setup-nav" style="margin-top:16px">' +
+      '<div class="setup-nav ob-pair-nav">' +
         '<button class="btn-ghost" id="ob-back">← Back</button>' +
         '<button class="btn-primary" id="ob-connect">Connect →</button>' +
       '</div>' +
-      '<button class="ob-skip-btn" id="ob-skip">Skip — I\'ll connect later from Profile</button>' +
+      '<button class="ob-skip-btn" id="ob-skip">Skip — set up solo first</button>' +
     '</div>';
 
+  // Generate QR code
+  renderQRCode('ob-qr-container', shareUrl);
+
+  // Back / skip
   document.getElementById('ob-back').addEventListener('click', () => { onboardStep = 1; renderOnboardStep(); });
   document.getElementById('ob-skip').addEventListener('click', finishOnboarding);
 
+  // Share link
   document.getElementById('ob-share-btn').addEventListener('click', () => {
-    const shareUrl = location.origin + location.pathname + '?pair=' + myCode;
-    const text = (state.profile.name || 'Your partner') + ' is inviting you to track your budget together on Pairly. Use code: ' + myCode;
+    const text = (state.profile.name || 'Your partner') +
+      ' is inviting you to Pairly — budget together. Code: ' + myCode;
     if (navigator.share) {
       navigator.share({ title: 'Join me on Pairly', text, url: shareUrl }).catch(() => {});
     } else {
       navigator.clipboard.writeText(shareUrl)
         .then(() => showToast('Invite link copied!', 'success'))
-        .catch(() => {
-          // Fallback: show code in toast
-          showToast('Your code: ' + myCode, 'info');
-        });
+        .catch(() => showToast('Your code: ' + myCode, 'info'));
     }
   });
 
-  document.getElementById('ob-connect').addEventListener('click', () => {
-    const partnerCode = document.getElementById('ob-partner-code').value.trim().toUpperCase();
-    if (!partnerCode || partnerCode.length < 4) {
-      showToast('Enter your partner\'s code first', 'info');
-      document.getElementById('ob-partner-code').focus();
+  function attemptConnect() {
+    const input = document.getElementById('ob-partner-code');
+    const statusEl = document.getElementById('ob-pair-status');
+    const partnerCode = (input.value || '').replace(/[^a-z0-9]/gi,'').toUpperCase().slice(0,6);
+    if (partnerCode.length < 6) {
+      showToast('Enter the full 6-character code', 'info');
+      input.focus();
       return;
     }
-    const statusEl = document.getElementById('ob-pair-status');
+    if (partnerCode === myCode) {
+      showToast("That's your own code!", 'error');
+      input.value = '';
+      input.focus();
+      return;
+    }
     statusEl.hidden = false;
     statusEl.textContent = 'Connecting…';
     statusEl.className = 'ob-pair-status connecting';
     connectWithCode(partnerCode, statusEl, () => {
       setTimeout(finishOnboarding, 800);
     });
+  }
+
+  document.getElementById('ob-connect').addEventListener('click', attemptConnect);
+
+  // Auto-connect when 6 chars typed
+  const codeInput = document.getElementById('ob-partner-code');
+  codeInput.addEventListener('input', () => {
+    codeInput.value = codeInput.value.replace(/[^a-z0-9]/gi,'').toUpperCase().slice(0,6);
+    if (codeInput.value.length === 6) attemptConnect();
   });
 
-  // Auto-trigger if deep link had a code
-  if (pairParam) {
-    document.getElementById('ob-partner-code').value = pairParam.toUpperCase();
+  // Auto-trigger if opened via deep link
+  if (pairParam && pairParam.length >= 6) {
+    setTimeout(attemptConnect, 400);
   }
 }
 
@@ -1975,9 +2182,12 @@ function getOrCreateInviteCode() {
 }
 
 function connectWithCode(partnerCode, statusEl, onSuccess) {
-  const peerId = partnerCode.trim().toLowerCase();
+  const code   = (partnerCode || '').replace(/[^a-z0-9]/gi,'').toUpperCase().slice(0,6);
+  const peerId = code.toLowerCase();
 
-  const _baseClass = statusEl ? (statusEl.dataset.baseClass || statusEl.className.split(' ')[0] || 'ob-pair-status') : 'ob-pair-status';
+  const _baseClass = statusEl
+    ? (statusEl.className.split(' ')[0] || 'ob-pair-status')
+    : 'ob-pair-status';
   const updateStatus = (msg, cls) => {
     if (!statusEl) return;
     statusEl.hidden = false;
@@ -1985,33 +2195,40 @@ function connectWithCode(partnerCode, statusEl, onSuccess) {
     statusEl.className = _baseClass + (cls ? ' ' + cls : '');
   };
 
+  // Guard: don't connect to yourself
+  if (code === (state.inviteCode || '').toUpperCase()) {
+    updateStatus("That's your own code — ask your partner for theirs", 'error');
+    return;
+  }
+
   if (!syncMgr) {
-    // No sync available — persist and move on
     state.pairedPeerId = peerId;
-    state.settings.partnerCode = partnerCode.toUpperCase();
+    state.settings.partnerCode = code;
     saveState();
     onSuccess && onSuccess();
     return;
   }
 
   updateStatus('Connecting…', 'connecting');
-  syncMgr.initPeer(getOrCreateInviteCode().toLowerCase()).then(() => {
-    return syncMgr.connect(peerId);
-  }).then(() => {
-    // Connection confirmed — safe to persist
-    state.pairedPeerId = peerId;
-    state.settings.partnerCode = partnerCode.toUpperCase();
-    saveState();
-    updateStatus('Connected! 🎉', 'success');
-    setTimeout(() => onSuccess && onSuccess(), 700);
-  }).catch(() => {
-    // Partner offline — save code so we auto-connect when they open the app
-    state.pairedPeerId = peerId;
-    state.settings.partnerCode = partnerCode.toUpperCase();
-    saveState();
-    updateStatus('Partner not online yet — will auto-connect when they open the app.', 'saved');
-    setTimeout(() => onSuccess && onSuccess(), 1800);
-  });
+
+  // Ensure our own peer is running first
+  syncMgr.initPeer(getOrCreateInviteCode().toLowerCase())
+    .then(() => syncMgr.connect(peerId))
+    .then(() => {
+      state.pairedPeerId = peerId;
+      state.settings.partnerCode = code;
+      saveState();
+      updateStatus('Connected! 🎉', 'success');
+      setTimeout(() => onSuccess && onSuccess(), 700);
+    })
+    .catch(() => {
+      // Partner offline — save so we auto-connect when they open the app
+      state.pairedPeerId = peerId;
+      state.settings.partnerCode = code;
+      saveState();
+      updateStatus('Saved — will connect automatically when partner opens the app', 'saved');
+      setTimeout(() => onSuccess && onSuccess(), 1800);
+    });
 }
 
 function finishOnboarding(skipSetup) {
