@@ -6,6 +6,7 @@
 'use strict';
 
 /* ─── Constants ─── */
+const APP_VERSION = '1.0.0';        // bumped by release.sh on each production push
 const STORAGE_KEY = 'pairly_v4';
 const DEVICE_KEY  = 'pairly_deviceid';
 const SYNC_CH     = 'pairly_v4';
@@ -1630,6 +1631,8 @@ function renderProfileScreen() {
       : '') +
     '</div>' +
 
+    '<div class="profile-version">Pairly v' + APP_VERSION + '</div>' +
+
     '</div>';
 
   // Edit profile button → restart onboarding profile step
@@ -2521,20 +2524,56 @@ function boot() {
     history.replaceState({ app: true }, '', location.pathname);
   }
 
-  // Register service worker for PWA / Play Store TWA support
+  // Register service worker — with user-controlled update flow
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js')
-      .then(reg => {
-        console.log('[SW] Registered, scope:', reg.scope);
-        // Listen for SW-driven sync-complete events
-        navigator.serviceWorker.addEventListener('message', (evt) => {
-          if (evt.data && evt.data.type === 'SYNC_COMPLETE') {
-            updateSyncChip('online');
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      // Detect a new SW that installed but is waiting for activation
+      const onUpdateFound = () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // A new version is ready — ask user if they want to update
+            showUpdateBanner(newWorker);
           }
         });
-      })
-      .catch(err => console.warn('[SW] Registration failed:', err));
+      };
+
+      if (reg.waiting && navigator.serviceWorker.controller) {
+        // Already a waiting SW on load (user had the app open during a previous update)
+        showUpdateBanner(reg.waiting);
+      }
+      reg.addEventListener('updatefound', onUpdateFound);
+
+      // SW messages
+      navigator.serviceWorker.addEventListener('message', evt => {
+        if (evt.data && evt.data.type === 'SYNC_COMPLETE') updateSyncChip('online');
+      });
+
+      // When SW activates (after skipWaiting), reload to use new version
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) { refreshing = true; location.reload(); }
+      });
+    }).catch(err => console.warn('[SW] Registration failed:', err));
   }
+}
+
+function showUpdateBanner(worker) {
+  const banner = document.getElementById('update-banner');
+  if (!banner) return;
+  banner.hidden = false;
+
+  document.getElementById('update-now-btn').onclick = () => {
+    banner.hidden = true;
+    worker.postMessage({ type: 'SKIP_WAITING' });
+    // controllerchange listener above will reload the page
+  };
+
+  document.getElementById('update-dismiss-btn').onclick = () => {
+    banner.hidden = true;
+    // User chose to stay on current version — they can update next time
+  };
 }
 
 function checkMonthRollover() {

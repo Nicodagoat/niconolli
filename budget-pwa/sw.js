@@ -1,10 +1,11 @@
 /* ══════════════════════════════════════════
-   PAIRLY — Service Worker v4
-   Strategy: Cache-first for assets, with
-   offline expense queue for submissions.
+   PAIRLY — Service Worker
+   Strategy: Cache-first for assets.
+   Updates: user-controlled — new SW waits
+   until the user taps "Update now".
 ══════════════════════════════════════════ */
 
-const CACHE_NAME        = 'pairly-v5';
+const CACHE_NAME        = 'pairly-v6';
 const OFFLINE_QUEUE_KEY = 'pairly_offline_queue';
 
 const PRECACHE_ASSETS = [
@@ -17,13 +18,14 @@ const PRECACHE_ASSETS = [
   './icon-maskable.svg',
 ];
 
-// ── Install: pre-cache all static assets ──────────────────────────────────────
+// ── Install: pre-cache assets, then WAIT — do NOT auto-activate ───────────────
+// The app will call skipWaiting only when the user explicitly taps "Update now".
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(PRECACHE_ASSETS))
-      .then(() => self.skipWaiting())
       .catch(err => console.warn('[SW] Pre-cache failed:', err))
+    // No skipWaiting() here — new SW stays in "waiting" state
   );
 });
 
@@ -89,12 +91,16 @@ self.addEventListener('sync', event => {
 });
 
 async function flushOfflineQueue() {
-  // The app stores expenses in localStorage directly (works offline).
-  // This sync event is a hook for future server-sync integration.
-  // Notify the client that sync fired (for UX feedback).
   const clients = await self.clients.matchAll({ type: 'window' });
   clients.forEach(client => client.postMessage({ type: 'SYNC_COMPLETE' }));
 }
+
+// ── Message handler: app sends SKIP_WAITING when user confirms update ─────────
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
 // ── Push notifications (for recurring expense reminders) ──────────────────────
 self.addEventListener('push', event => {

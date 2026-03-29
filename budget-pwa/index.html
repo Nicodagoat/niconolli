@@ -27,6 +27,13 @@
   <link rel="apple-touch-icon" href="icon.svg">
 </head>
 <body>
+  <!-- Update available banner — shown by SW registration code when a new version is waiting -->
+  <div id="update-banner" class="update-banner" hidden>
+    <span class="update-banner-text">✨ New update available</span>
+    <button id="update-now-btn" class="update-now-btn">Update now</button>
+    <button id="update-dismiss-btn" class="update-dismiss-btn" aria-label="Dismiss">✕</button>
+  </div>
+
   <div id="app">
 
     <!-- ═══ ONBOARDING SCREEN ═══ -->
