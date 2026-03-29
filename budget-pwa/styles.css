@@ -1958,3 +1958,61 @@ select:focus-visible,
 textarea:focus-visible {
   outline: none;
 }
+
+/* ══════════════════════════════════════════
+   CATEGORY BREAKDOWN (Status screen)
+══════════════════════════════════════════ */
+.cat-breakdown { display: flex; flex-direction: column; gap: 10px; }
+
+.cat-bar-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.cat-bar-label {
+  font-size: 13px; font-weight: 600; color: var(--text-1);
+  width: 90px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cat-bar-track {
+  flex: 1; height: 7px; background: var(--progress-track); border-radius: 4px; overflow: hidden;
+}
+.cat-bar-fill {
+  height: 100%; background: var(--dusty-grape); border-radius: 4px;
+  transition: width 0.4s cubic-bezier(0.16,1,0.3,1);
+}
+.cat-bar-amt {
+  font-size: 13px; font-weight: 700; color: var(--text-1);
+  width: 56px; text-align: right; flex-shrink: 0;
+}
+
+/* ══════════════════════════════════════════
+   TRANSACTION EDIT / DETAIL ACTIONS
+══════════════════════════════════════════ */
+.tx-detail-actions {
+  display: flex; gap: 8px; margin-top: 16px;
+}
+.tx-detail-actions .btn-secondary,
+.tx-detail-actions .btn-danger-outline,
+.tx-detail-actions .btn-primary,
+.tx-detail-actions .btn-ghost {
+  flex: 1;
+}
+
+/* ══════════════════════════════════════════
+   HISTORY MONTH SUMMARY
+══════════════════════════════════════════ */
+.history-month-summary {
+  padding: 12px 0 6px;
+}
+.history-month-label {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.6px; color: var(--text-2); margin-bottom: 8px;
+}
+.history-month-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.hms-chip {
+  font-size: 12px; font-weight: 700;
+  padding: 4px 10px; border-radius: 12px;
+}
+.hms-chip.joint     { background: rgba(74,78,105,0.12); color: var(--dusty-grape); }
+.hms-chip.personal  { background: rgba(201,173,167,0.2); color: var(--almond-silk-dark, #8b6e68); }
+.hms-chip.unforeseen{ background: rgba(154,140,152,0.15); color: var(--lilac-ash); }

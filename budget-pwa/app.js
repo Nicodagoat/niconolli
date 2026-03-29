@@ -459,6 +459,21 @@ function handleSyncPacket(packet) {
       }
       break;
     }
+    case 'tx_edit': {
+      const mk = packet.monthKey;
+      const month = mk && state.months[mk];
+      if (month) {
+        const tx = month.transactions.find(t => t.id === packet.txId);
+        if (tx) {
+          tx.amount = packet.amount;
+          tx.category = packet.category;
+          tx.note = packet.note;
+          saveState();
+          if (mk === currentMonthKey) renderCurrentScreen();
+        }
+      }
+      break;
+    }
     case 'vacation_sync': {
       state.activeVacation = packet.activeVacation || null;
       // Merge partner's vacation archive (deduplicate by id)
@@ -485,6 +500,29 @@ function handleSyncPacket(packet) {
     }
     case 'heartbeat':
       break;
+  }
+}
+
+function checkBudgetAlert(tx) {
+  const currency = state.settings.currency;
+  if (tx.type === 'joint' && !tx.isFixed) {
+    const t = getFixedTotals(currentMonthKey);
+    if (t.variableTotal > 0) {
+      const pct = t.variableSpent / t.variableTotal * 100;
+      if (pct >= 100) showToast('⚠️ Joint budget reached! ' + fmt(t.variableSpent, currency) + ' of ' + fmt(t.variableTotal, currency), 'error');
+      else if (pct >= 90) showToast('⚠️ 90% of joint budget used — ' + fmt(t.variableRemaining, currency) + ' left', 'info');
+    }
+  } else if (tx.type === 'personal') {
+    const me = state.settings.currentUser;
+    const month = state.months[currentMonthKey];
+    const personalTotal = month && month.personal[me] ? month.personal[me].total : 0;
+    if (personalTotal > 0) {
+      const t = getFixedTotals(currentMonthKey);
+      const spent = t.personalSpent[me] || 0;
+      const pct = spent / personalTotal * 100;
+      if (pct >= 100) showToast('⚠️ Personal budget reached!', 'error');
+      else if (pct >= 90) showToast('⚠️ 90% of personal budget used', 'info');
+    }
   }
 }
 
@@ -904,6 +942,7 @@ function submitExpense() {
 
   saveState();
   broadcastExpense(tx, currentMonthKey);
+  checkBudgetAlert(tx);
 
   // Success feedback
   const feedback = document.getElementById('success-feedback');
@@ -991,6 +1030,30 @@ function initRepeatBtn() {
   });
 }
 
+/* ─── CATEGORY BREAKDOWN ─── */
+function buildCategoryBreakdown(txs, currency) {
+  const varTxs = txs.filter(t => t.type === 'joint' && !t.isFixed);
+  if (varTxs.length === 0) return '';
+
+  const cats = {};
+  varTxs.forEach(tx => { cats[tx.category] = (cats[tx.category] || 0) + tx.amount; });
+  const sorted = Object.entries(cats).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const max = sorted[0][1];
+
+  const rows = sorted.map(([name, amount]) => {
+    const pct = Math.round(amount / max * 100);
+    const icon = (VAR_CATEGORIES.find(c => c.name === name) || {icon: '📦'}).icon;
+    return '<div class="cat-bar-row">' +
+      '<span class="cat-bar-label">' + icon + ' ' + name + '</span>' +
+      '<div class="cat-bar-track"><div class="cat-bar-fill" style="width:' + pct + '%"></div></div>' +
+      '<span class="cat-bar-amt">' + fmt(amount, currency) + '</span>' +
+      '</div>';
+  }).join('');
+
+  return '<div class="section-title">Spending Breakdown</div>' +
+    '<div class="budget-card cat-breakdown">' + rows + '</div>';
+}
+
 /* ─── STATUS SCREEN ─── */
 function renderStatusScreen() {
   const screen = document.getElementById('status-screen');
@@ -1073,6 +1136,7 @@ function renderStatusScreen() {
 
     fixedListHtml +
     iouHtml +
+    buildCategoryBreakdown(month.transactions, currency) +
 
     // Personal cards (only if budgets set)
     (p1Total > 0 ? '<div class="section-title">Personal</div><div class="budget-card">' +
@@ -1180,6 +1244,24 @@ function renderHistoryScreen() {
     });
   });
 
+  // Monthly summary bar
+  if (month && txs.length) {
+    const currency = state.settings.currency;
+    const jointTotal = txs.filter(t => t.type === 'joint').reduce((s, t) => s + t.amount, 0);
+    const personalTotal = txs.filter(t => t.type === 'personal').reduce((s, t) => s + t.amount, 0);
+    const unforeseenTotal = txs.filter(t => t.type === 'unforeseen').reduce((s, t) => s + t.amount, 0);
+    const monthLabel = new Date(currentHistoryMonth + '-15').toLocaleDateString('en-US', {month:'long', year:'numeric'});
+    let summaryHtml = '<div class="history-month-summary">' +
+      '<div class="history-month-label">' + monthLabel + '</div>' +
+      '<div class="history-month-chips">' +
+      (jointTotal > 0 ? '<span class="hms-chip joint">Joint ' + fmt(jointTotal, currency) + '</span>' : '') +
+      (personalTotal > 0 ? '<span class="hms-chip personal">Mine ' + fmt(personalTotal, currency) + '</span>' : '') +
+      (unforeseenTotal > 0 ? '<span class="hms-chip unforeseen">⚡ ' + fmt(unforeseenTotal, currency) + '</span>' : '') +
+      '</div></div>';
+    const listEl = document.getElementById('history-list');
+    if (listEl) listEl.insertAdjacentHTML('beforebegin', summaryHtml);
+  }
+
   renderHistoryList(txs, '');
 
   const searchInput = document.getElementById('history-search');
@@ -1257,33 +1339,97 @@ function showTransactionDetail(tx) {
         || {name:'Vacation'}).name
     : null;
 
+  const allCats = [
+    ...state.settings.fixedCosts.map(fc => fc.name),
+    ...VAR_CATEGORIES.map(c => c.name),
+  ];
+  const catOptions = allCats.map(c =>
+    '<option value="' + escapeHtml(c) + '"' + (c === tx.category ? ' selected' : '') + '>' + escapeHtml(c) + '</option>'
+  ).join('');
+
   showModal('<div class="detail-modal">' +
     '<div class="modal-handle"></div>' +
-    '<h3>' + fmt(tx.amount, currency) + ' · ' + tx.category + '</h3>' +
+    '<h3 id="tx-detail-title">' + fmt(tx.amount, currency) + ' · ' + escapeHtml(tx.category) + '</h3>' +
+
+    // Read-only view
+    '<div id="tx-detail-view">' +
     (tx.note ? '<div class="detail-row"><span class="detail-label">Note</span><span>' + escapeHtml(tx.note) + '</span></div>' : '') +
     '<div class="detail-row"><span class="detail-label">Type</span><span>' + (tx.isFixed ? 'Fixed Cost' : tx.type) + '</span></div>' +
     '<div class="detail-row"><span class="detail-label">Paid by</span><span>' + (tx.paidBy === 'both' ? 'Split ' + Math.round((tx.splitRatio||0.5)*100) + '/' + (100-Math.round((tx.splitRatio||0.5)*100)) : tx.paidBy) + '</span></div>' +
     (vacName ? '<div class="detail-row"><span class="detail-label">Vacation</span><span>🏖️ ' + escapeHtml(vacName) + '</span></div>' : '') +
     '<div class="detail-row"><span class="detail-label">Date</span><span>' + dateStr + '</span></div>' +
     '<div class="detail-row"><span class="detail-label">Time</span><span>' + timeStr + '</span></div>' +
+    '<div class="tx-detail-actions">' +
+    (!tx.isFixed ? '<button class="btn-secondary" id="modal-edit-tx">Edit</button>' : '') +
     '<button class="btn-danger-outline" id="modal-delete-tx">Delete</button>' +
+    '</div></div>' +
+
+    // Edit form (hidden until Edit tapped)
+    '<div id="tx-edit-form" hidden>' +
+    '<div class="setup-field" style="margin-bottom:10px"><label>Amount</label>' +
+    '<div class="setup-amount-input"><span class="currency">' + currency + '</span>' +
+    '<input type="number" id="edit-amount" value="' + tx.amount + '" inputmode="decimal" min="0.01" step="0.01"></div></div>' +
+    '<div class="setup-field" style="margin-bottom:10px"><label>Category</label>' +
+    '<select id="edit-category" class="partner-name-input">' + catOptions + '</select></div>' +
+    '<div class="setup-field" style="margin-bottom:12px"><label>Note</label>' +
+    '<input class="partner-name-input" id="edit-note" value="' + escapeHtml(tx.note || '') + '" maxlength="100" placeholder="Optional note"></div>' +
+    '<div class="tx-detail-actions">' +
+    '<button class="btn-ghost" id="modal-edit-cancel">Cancel</button>' +
+    '<button class="btn-primary" id="modal-save-tx">Save</button>' +
+    '</div></div>' +
     '</div>');
 
   document.getElementById('modal-delete-tx').addEventListener('click', () => {
-    // Use the transaction's own month key so deletes from history work correctly
     const month = state.months[txMonthKey];
     if (month) {
       month.transactions = month.transactions.filter(t => t.id !== tx.id);
       if (tx.isFixed && tx.fixedCostId && month.fixedPaid[tx.fixedCostId]) {
         month.fixedPaid[tx.fixedCostId] = { paid: false };
       }
-      // Remove any IOUs that were created by this transaction
       month.ious = month.ious.filter(iou => iou.txId !== tx.id);
       saveState();
     }
     closeModal();
     renderHistoryScreen();
   });
+
+  const editBtn = document.getElementById('modal-edit-tx');
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      document.getElementById('tx-detail-view').hidden = true;
+      document.getElementById('tx-edit-form').hidden = false;
+    });
+  }
+
+  const cancelBtn = document.getElementById('modal-edit-cancel');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+      document.getElementById('tx-detail-view').hidden = false;
+      document.getElementById('tx-edit-form').hidden = true;
+    });
+  }
+
+  const saveBtn = document.getElementById('modal-save-tx');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      const newAmount = parseFloat(document.getElementById('edit-amount').value);
+      const newCategory = document.getElementById('edit-category').value;
+      const newNote = document.getElementById('edit-note').value.trim();
+      if (!newAmount || newAmount <= 0) return showToast('Enter a valid amount', 'error');
+      const month = state.months[txMonthKey];
+      if (!month) return;
+      const live = month.transactions.find(t => t.id === tx.id);
+      if (!live) return;
+      live.amount = newAmount;
+      live.category = newCategory;
+      live.note = newNote;
+      saveState();
+      syncMgr && syncMgr.send({ type: 'tx_edit', txId: tx.id, monthKey: txMonthKey, amount: newAmount, category: newCategory, note: newNote });
+      closeModal();
+      renderHistoryScreen();
+      if (currentScreen === 'status-screen') renderStatusScreen();
+    });
+  }
 }
 
 /* ─── PROFILE SCREEN ─── */
