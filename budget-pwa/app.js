@@ -459,6 +459,19 @@ function handleSyncPacket(packet) {
       }
       break;
     }
+    case 'vacation_sync': {
+      state.activeVacation = packet.activeVacation || null;
+      // Merge partner's vacation archive (deduplicate by id)
+      if (Array.isArray(packet.vacations)) {
+        const existingIds = new Set(state.vacations.map(v => v.id));
+        packet.vacations.forEach(v => { if (!existingIds.has(v.id)) state.vacations.push(v); });
+      }
+      saveState();
+      renderExpenseEntry();
+      if (currentScreen === 'profile-screen') renderProfileScreen();
+      if (packet.activeVacation) showToast(getPartnerName() + ' started vacation: ' + packet.activeVacation.name + ' 🏖️', 'info');
+      break;
+    }
     case 'iou_settle': {
       const mk = packet.monthKey || currentMonthKey;
       const month = ensureMonth(mk);
@@ -1239,7 +1252,9 @@ function showTransactionDetail(tx) {
   const timeStr = d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
   const txMonthKey = getMonthKey(d);
   const vacName = tx.vacationId
-    ? (state.vacations.find(v => v.id === tx.vacationId) || state.activeVacation || {name:'Vacation'}).name
+    ? (state.vacations.find(v => v.id === tx.vacationId)
+        || (state.activeVacation && state.activeVacation.id === tx.vacationId ? state.activeVacation : null)
+        || {name:'Vacation'}).name
     : null;
 
   showModal('<div class="detail-modal">' +
@@ -1509,10 +1524,7 @@ function renderProfileScreen() {
   });
 
   const endVacBtn = document.getElementById('end-vac-btn');
-  if (endVacBtn) endVacBtn.addEventListener('click', () => {
-    if (!confirm('End vacation and see the settlement?')) return;
-    endVacation();
-  });
+  if (endVacBtn) endVacBtn.addEventListener('click', () => confirmEndVacation(endVacBtn));
 
   screen.querySelectorAll('.vac-history-row').forEach(row => {
     row.addEventListener('click', () => {
@@ -1941,13 +1953,31 @@ function renderVacationBanner() {
     if (nameEl) nameEl.textContent = '🏖️ ' + state.activeVacation.name;
     const endBtn = document.getElementById('vac-end-quick-btn');
     if (endBtn) {
-      endBtn.onclick = () => {
-        if (!confirm('End vacation and see the settlement?')) return;
-        endVacation();
-      };
+      endBtn.onclick = () => confirmEndVacation(endBtn);
     }
   } else {
     banner.hidden = true;
+  }
+}
+
+function confirmEndVacation(btn) {
+  // Double-tap to confirm — avoids confirm() which is blocked in iOS PWA
+  if (btn._armed) {
+    clearTimeout(btn._armTimer);
+    btn._armed = false;
+    btn.textContent = btn._origText;
+    btn.classList.remove('btn-danger-outline');
+    endVacation();
+  } else {
+    btn._origText = btn.textContent;
+    btn._armed = true;
+    btn.textContent = 'Tap again to confirm';
+    btn.classList.add('btn-danger-outline');
+    btn._armTimer = setTimeout(() => {
+      btn._armed = false;
+      btn.textContent = btn._origText;
+      btn.classList.remove('btn-danger-outline');
+    }, 3000);
   }
 }
 
@@ -1959,6 +1989,7 @@ function startVacation(name) {
     startDate: new Date().toISOString(),
   };
   saveState();
+  syncMgr && syncMgr.send({ type: 'vacation_sync', activeVacation: state.activeVacation, vacations: state.vacations });
   if (currentScreen === 'profile-screen') renderProfileScreen();
   renderExpenseEntry();
   showToast('Vacation mode started! 🏖️', 'success');
@@ -1972,9 +2003,10 @@ function endVacation() {
   state.vacations.unshift(vacation);
   state.activeVacation = null;
   saveState();
+  syncMgr && syncMgr.send({ type: 'vacation_sync', activeVacation: null, vacations: state.vacations });
   showVacationSummaryModal(vacation);
-  renderExpenseEntry(); // hide banner on add screen
-  if (currentScreen === 'profile-screen') renderProfileScreen(); // refresh profile if visible
+  renderExpenseEntry();
+  if (currentScreen === 'profile-screen') renderProfileScreen();
 }
 
 function getVacationExpenses(vacationId) {
