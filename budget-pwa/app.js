@@ -134,6 +134,9 @@ function loadState() {
     if (raw) {
       const parsed = JSON.parse(raw);
       state = parsed;
+      // Clean up old storage keys after migration
+      localStorage.removeItem('couplebudget_v3');
+      localStorage.removeItem('couplebudget_v2');
       // Migrations
       if (!state.settings.fixedCosts) state.settings.fixedCosts = [];
       if (!state.settings.theme) state.settings.theme = 'system';
@@ -156,7 +159,13 @@ function loadState() {
 }
 
 function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) { console.warn('Save error', e); }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch(e) {
+    console.warn('Save error', e);
+    // Notify user — silent loss is worse than a warning
+    showToast('Storage full — data may not be saved. Free up space.', 'error');
+  }
 }
 
 /* ─── Budget Math ─── */
@@ -293,7 +302,7 @@ class SyncManager {
     conn.on('error', handleDrop);
     this.updateStatus('connected');
     this._startHeartbeat();
-    if (this._onConnectCb) this._onConnectCb();
+    if (this._connectListeners) this._connectListeners.forEach(fn => fn());
     // Both sides: request partner's state AND send our own
     this.send({ type: 'sync_request', requestFull: true });
   }
@@ -325,7 +334,10 @@ class SyncManager {
 
   onData(fn) { this.listeners.push(fn); }
 
-  onConnect(fn) { this._onConnectCb = fn; }
+  onConnect(fn) {
+    if (!this._connectListeners) this._connectListeners = [];
+    this._connectListeners.push(fn);
+  }
 
   updateStatus(status) {
     this.status = status;
@@ -361,14 +373,21 @@ function initSync() {
     syncMgr.send({ type: 'state_sync', monthKey: currentMonthKey, month });
   });
 
-  // Auto-reconnect when connection drops
+  // Auto-reconnect with exponential backoff (4s → 8s → 16s → 32s → cap 60s)
+  let _reconnectDelay = 4000;
   syncMgr.onDisconnect(() => {
-    if (state.pairedPeerId) {
-      syncMgr._reconnectTimer = setTimeout(() => {
-        if (!syncMgr.conn) syncMgr.connect(state.pairedPeerId).catch(() => {});
-      }, 4000);
-    }
+    if (!state.pairedPeerId) return;
+    clearTimeout(syncMgr._reconnectTimer);
+    const attempt = () => {
+      if (syncMgr.conn) { _reconnectDelay = 4000; return; } // already reconnected
+      syncMgr.connect(state.pairedPeerId).catch(() => {
+        _reconnectDelay = Math.min(_reconnectDelay * 2, 60000);
+        syncMgr._reconnectTimer = setTimeout(attempt, _reconnectDelay);
+      });
+    };
+    syncMgr._reconnectTimer = setTimeout(attempt, _reconnectDelay);
   });
+  syncMgr.onConnect(() => { _reconnectDelay = 4000; }); // reset on success
 
   const myPeerId = getOrCreateInviteCode().toLowerCase();
 
@@ -440,6 +459,17 @@ function handleSyncPacket(packet) {
       }
       break;
     }
+    case 'iou_settle': {
+      const mk = packet.monthKey || currentMonthKey;
+      const month = ensureMonth(mk);
+      const iou = month.ious.find(i => i.id === packet.iouId);
+      if (iou && !iou.settled) {
+        iou.settled = true;
+        saveState();
+        if (mk === currentMonthKey) renderCurrentScreen();
+      }
+      break;
+    }
     case 'heartbeat':
       break;
   }
@@ -447,11 +477,13 @@ function handleSyncPacket(packet) {
 
 function broadcastExpense(tx, monthKey) {
   if (!syncMgr) return;
-  const delivered = syncMgr.send({ type: 'expense', transaction: tx, monthKey: monthKey || currentMonthKey });
+  const mk = monthKey || currentMonthKey;
+  const delivered = syncMgr.send({ type: 'expense', transaction: tx, monthKey: mk });
   if (!delivered) {
-    // Not connected — queue for when partner comes online
-    if (!state.pendingSync.find(t => t.id === tx.id)) {
-      state.pendingSync.push(tx);
+    // Not connected — queue for when partner comes online; preserve monthKey so
+    // offline expenses don't get flushed under the wrong month after rollover
+    if (!state.pendingSync.find(e => e.tx.id === tx.id)) {
+      state.pendingSync.push({ tx, monthKey: mk });
       saveState();
     }
   }
@@ -460,9 +492,12 @@ function broadcastExpense(tx, monthKey) {
 function flushPendingSync() {
   if (!syncMgr || !state.pendingSync || !state.pendingSync.length) return;
   const stillPending = [];
-  state.pendingSync.forEach(tx => {
-    const delivered = syncMgr.send({ type: 'expense', transaction: tx, monthKey: currentMonthKey });
-    if (!delivered) stillPending.push(tx);
+  state.pendingSync.forEach(entry => {
+    // Support both old format (bare tx) and new format ({ tx, monthKey })
+    const tx = entry.tx || entry;
+    const mk = entry.monthKey || currentMonthKey;
+    const delivered = syncMgr.send({ type: 'expense', transaction: tx, monthKey: mk });
+    if (!delivered) stillPending.push(entry);
   });
   state.pendingSync = stillPending;
   saveState();
@@ -564,6 +599,7 @@ function renderDueSoonBar() {
     const paid = isFixedPaid(fc.id);
     const btn = document.createElement('button');
     btn.className = 'due-soon-btn' + (paid ? ' paid' : '');
+    btn.dataset.fcid = fc.id;
     const today = dayOfMonth();
     const daysLeft = fc.dueDay >= today ? fc.dueDay - today : 0;
     const dueText = daysLeft === 0 ? 'Today' : daysLeft === 1 ? 'Tomorrow' : 'Due ' + fc.dueDay;
@@ -618,6 +654,7 @@ function renderCategoryPills() {
     const isSelected = !isFixedSelected && selectedCategory === cat.name;
     pill.className = 'category-pill' + (isSelected ? ' selected-' + selectedType : '');
     pill.textContent = cat.icon + ' ' + cat.name;
+    pill.dataset.category = cat.name;
     pill.addEventListener('click', () => selectVariableCategory(cat.name));
     container.appendChild(pill);
   });
@@ -681,8 +718,8 @@ function updateIouPreview() {
     return;
   }
   preview.hidden = false;
-  const myShare = amount * splitRatio / 100;
-  const netOwed = Math.abs(myShare - amount / 2);
+  const myShare = Math.round(amount * splitRatio) / 100;
+  const netOwed = Math.round(Math.abs(myShare - amount / 2) * 100) / 100;
   const partnerName = getPartnerName();
   const myName = getMyName();
   if (splitRatio > 50) {
@@ -1085,7 +1122,13 @@ function settleIou(iouId) {
   const month = state.months[currentMonthKey];
   if (!month) return;
   const iou = month.ious.find(i => i.id === iouId);
-  if (iou) { iou.settled = true; saveState(); renderStatusScreen(); showToast('IOU settled!', 'success'); }
+  if (iou) {
+    iou.settled = true;
+    saveState();
+    syncMgr && syncMgr.send({ type: 'iou_settle', iouId, monthKey: currentMonthKey });
+    renderStatusScreen();
+    showToast('IOU settled!', 'success');
+  }
 }
 
 /* ─── HISTORY SCREEN ─── */
@@ -1219,6 +1262,8 @@ function showTransactionDetail(tx) {
       if (tx.isFixed && tx.fixedCostId && month.fixedPaid[tx.fixedCostId]) {
         month.fixedPaid[tx.fixedCostId] = { paid: false };
       }
+      // Remove any IOUs that were created by this transaction
+      month.ious = month.ious.filter(iou => iou.txId !== tx.id);
       saveState();
     }
     closeModal();
@@ -1673,10 +1718,6 @@ function getOrCreateInviteCode() {
 
 function connectWithCode(partnerCode, statusEl, onSuccess) {
   const peerId = partnerCode.trim().toLowerCase();
-  // Save the code so auto-reconnect can use it after onboarding
-  state.pairedPeerId = peerId;
-  state.settings.partnerCode = partnerCode.toUpperCase();
-  saveState();
 
   const updateStatus = (msg, cls) => {
     if (!statusEl) return;
@@ -1685,17 +1726,30 @@ function connectWithCode(partnerCode, statusEl, onSuccess) {
     statusEl.className = 'ob-pair-status ' + (cls || '');
   };
 
-  if (!syncMgr) { onSuccess && onSuccess(); return; }
+  if (!syncMgr) {
+    // No sync available — persist and move on
+    state.pairedPeerId = peerId;
+    state.settings.partnerCode = partnerCode.toUpperCase();
+    saveState();
+    onSuccess && onSuccess();
+    return;
+  }
 
   updateStatus('Connecting…', 'connecting');
-  // Our peer is already initialised with our invite code as the peer ID.
-  // The partner's peer ID IS their invite code — connect directly.
   syncMgr.initPeer(getOrCreateInviteCode().toLowerCase()).then(() => {
     return syncMgr.connect(peerId);
   }).then(() => {
+    // Connection confirmed — safe to persist
+    state.pairedPeerId = peerId;
+    state.settings.partnerCode = partnerCode.toUpperCase();
+    saveState();
     updateStatus('Connected! 🎉', 'success');
     setTimeout(() => onSuccess && onSuccess(), 700);
   }).catch(() => {
+    // Partner offline — save code so we auto-connect when they open the app
+    state.pairedPeerId = peerId;
+    state.settings.partnerCode = partnerCode.toUpperCase();
+    saveState();
     updateStatus('Partner not online yet — will auto-connect when they open the app.', 'saved');
     setTimeout(() => onSuccess && onSuccess(), 1800);
   });
