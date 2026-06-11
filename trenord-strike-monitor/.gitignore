@@ -1,0 +1,12 @@
+# Credenziali e configurazione locale
+.env
+secrets/*
+!secrets/.gitkeep
+
+# Stato e output runtime
+data/*.sqlite3
+data/ics/*.ics
+logs/*.log*
+
+__pycache__/
+*.py[cod]

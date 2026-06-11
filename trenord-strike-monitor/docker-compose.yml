@@ -1,0 +1,11 @@
+services:
+  trenord-monitor:
+    build: .
+    container_name: trenord-strike-monitor
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./secrets:/app/secrets:ro
