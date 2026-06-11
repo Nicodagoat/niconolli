@@ -1,21 +1,24 @@
 /**
  * Trenord Strike Monitor — Google Apps Script
  *
- * Setup (una tantum, 2 minuti):
- *  1. Vai su https://script.google.com → Nuovo progetto
- *  2. Incolla questo file
- *  3. Esegui setupTrigger() una volta sola → il monitor parte ogni 6 ore
- *  4. Alla prima esecuzione Google chiede le autorizzazioni → Consenti
+ * Setup (una tantum, ~3 minuti):
+ *  1. Registrati gratis su https://www.scraperapi.com (no carta di credito)
+ *     e copia la tua API key dalla dashboard.
+ *  2. In questo editor: Progetto → Impostazioni (⚙) → Proprietà script →
+ *     Aggiungi proprietà:  Nome = SCRAPER_API_KEY  Valore = <la tua key>
+ *  3. Salva (Ctrl+S), seleziona setupTrigger() dal dropdown, clicca ▶ Run
+ *  4. Consenti le autorizzazioni → fine.
  *
- * Non serve nessuna chiave API. Il calendario viene aggiornato direttamente.
+ * ScraperAPI free: 1000 chiamate/mese (ne usiamo ~120 ogni 30 giorni).
  */
 
 // ─── Configurazione ───────────────────────────────────────────────────────────
 const CONFIG = {
   AVVISI_URL:    'https://www.trenord.it/news/trenord-informa/avvisi/',
-  CALENDAR_ID:   'niccolonolli@gmail.com',   // o 'primary'
+  CALENDAR_ID:   'niccolonolli@gmail.com',
   LISTING_PATH:  '/news/trenord-informa/avvisi',
   KEYWORDS:      ['sciopero', 'agitazione sindacale', 'strike'],
+  SCRAPER_PROXY: 'https://api.scraperapi.com/?api_key={KEY}&url={URL}',
 };
 
 // ─── Mesi italiani ───────────────────────────────────────────────────────────
@@ -93,14 +96,15 @@ function setupTrigger() {
 
 // ─── HTTP ────────────────────────────────────────────────────────────────────
 function fetchPage(url) {
-  const res = UrlFetchApp.fetch(url, {
+  const apiKey = PropertiesService.getScriptProperties().getProperty('SCRAPER_API_KEY');
+  if (!apiKey) throw new Error('SCRAPER_API_KEY non impostata nelle Proprietà script. Leggi il commento in cima al file.');
+
+  const proxyUrl = CONFIG.SCRAPER_PROXY
+    .replace('{KEY}', encodeURIComponent(apiKey))
+    .replace('{URL}', encodeURIComponent(url));
+
+  const res = UrlFetchApp.fetch(proxyUrl, {
     method: 'GET',
-    headers: {
-      'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
-      'Accept':          'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'it-IT,it;q=0.9',
-    },
-    followRedirects:   true,
     muteHttpExceptions: true,
   });
   const code = res.getResponseCode();
