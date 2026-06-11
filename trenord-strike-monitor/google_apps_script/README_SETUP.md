@@ -1,46 +1,61 @@
-# Setup Google Apps Script (2 minuti)
+# Setup Google Apps Script (una volta sola, poi va da solo)
 
-## 1. Apri il tuo Google Apps Script
+Il monitor gira nel cloud di Google **per sempre, in background, gratis**:
+controlla la pagina avvisi Trenord ogni 6 ore e crea **un solo evento
+"Sciopero Trenord"** per ogni sciopero.
 
-→ **https://script.google.com/home/start**
+## 1. API key ScraperAPI (gratis)
 
-Clicca **"Nuovo progetto"**.
+→ **https://www.scraperapi.com** → Sign up (no carta di credito) → copia la API key.
 
-## 2. Incolla il codice
+Serve perché Trenord blocca gli IP dei datacenter (inclusi quelli di Google):
+le richieste passano da ScraperAPI. Il piano gratuito (1000 chiamate/mese)
+basta ampiamente: il monitor ne usa ~5 al giorno.
 
-- Seleziona tutto il contenuto del file `TrenordMonitor.gs`
-- Incollalo nell'editor (sostituendo il `function myFunction() {}` vuoto)
-- Clicca il **floppy disk** (salva) o `Ctrl+S`
+## 2. Progetto Apps Script
 
-## 3. Avvia il monitor
+→ **https://script.google.com** → Nuovo progetto → incolla `TrenordMonitor.gs`
 
-Nella toolbar in alto, dal menu a discesa accanto al tasto ▶ Run, seleziona **`setupTrigger`** e clicca ▶.
+Poi: ⚙ **Impostazioni progetto** (sidebar in basso a sinistra) →
+**Proprietà script** → *Aggiungi proprietà*:
 
-Google chiede le autorizzazioni → clicca **"Esamina le autorizzazioni"** → scegli il tuo account Google → **"Consenti"**.
+| Nome | Valore |
+|---|---|
+| `SCRAPER_API_KEY` | la tua key ScraperAPI |
 
-`setupTrigger` fa due cose:
-1. Registra il trigger automatico **ogni 6 ore**
-2. Esegue subito il primo controllo
+## 3. Avvio (una volta sola)
 
-## 4. Verifica
+1. **Ctrl+S** per salvare
+2. Dal dropdown nella toolbar seleziona **`setupTrigger`** → ▶ **Run**
+3. Consenti le autorizzazioni (se appare "App non verificata":
+   Avanzate → "Vai a … (non sicuro)" — normale per gli script personali)
 
-- Clicca **"Esecuzioni"** (icona a sinistra) per vedere i log del primo run
-- Apri Google Calendar: se c'è uno sciopero attivo troverai l'evento **"Sciopero Trenord"**
+`setupTrigger` registra il trigger **ogni 6 ore** ed esegue subito il primo
+controllo. Da questo momento non devi più fare nulla: il PC può essere spento,
+gira tutto sui server di Google.
 
-## Niente altro da fare
+## Come funziona l'anti-duplicato (v2)
 
-Il monitor girerà da solo ogni 6 ore finché non lo elimini da **Trigger** → icona orologio a sinistra.
+- un avviso è considerato sciopero solo se **il titolo** contiene
+  `sciopero` / `agitazione sindacale` / `strike` (Trenord mette il banner
+  sciopero su *tutte* le pagine, quindi il testo della pagina darebbe falsi
+  positivi — è il bug che aveva creato 14 eventi);
+- prima di creare l'evento si controlla se sul calendario esiste già uno
+  "Sciopero Trenord" **nello stesso periodo** → in quel caso si salta;
+- lo storico degli URL già visti è salvato in modo incrementale, quindi
+  anche se un'esecuzione viene interrotta non si riparte da zero.
 
----
-
-### Funzioni di utilità
+## Funzioni di utilità (eseguibili dal dropdown)
 
 | Funzione | Cosa fa |
 |---|---|
-| `setupTrigger()` | Registra il trigger e avvia subito |
-| `main()` | Esegui un controllo manuale al volo |
-| `resetSeen()` | Azzera lo storico (riprocessa tutti gli avvisi) |
+| `main()` | controllo manuale immediato |
+| `cleanupDuplicates()` | rimuove eventuali eventi "Sciopero Trenord" duplicati |
+| `resetSeen()` | azzera lo storico degli avvisi visti |
 
-### Se un avviso non ha date riconoscibili
+## Verifica
 
-Ricevi una email automatica su `niccolonolli@gmail.com` con il link all'avviso da controllare manualmente.
+- **Esecuzioni** (sidebar) → log di ogni run
+- **Trigger** (icona ⏰) → deve esserci `main / Basato sul tempo / Ogni 6 ore`
+- Se un avviso di sciopero non ha date riconoscibili ricevi una **email**
+  con il link per controllarlo a mano.
