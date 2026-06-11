@@ -31,7 +31,9 @@ jobs:
           cache-dependency-path: trenord-strike-monitor/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium --with-deps
 
       # Lo storico SQLite viene conservato tra le run tramite la cache di
       # GitHub Actions: si ripristina l'ultima versione disponibile e a fine

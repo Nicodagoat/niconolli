@@ -101,17 +101,27 @@ GitHub Actions) è consigliato il **service account**.
 
 Richiede Python ≥ 3.10.
 
+> **Nota su Akamai**: il sito Trenord blocca gli IP dei datacenter cloud.
+> Il servizio funziona correttamente dalla tua rete di casa/ufficio (IP residenziale).
+
 ```bash
 cd trenord-strike-monitor
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # e compila i valori
 
-# servizio continuo (controllo subito + ogni 6 ore)
-python main.py
+# Installa il browser Chromium per Playwright (prima volta)
+playwright install chromium
 
-# oppure controllo singolo (per cron di sistema)
+cp .env.example .env   # lascia i valori di default (usa OAuth, calendario niccolonolli@gmail.com)
+
+# Genera il token OAuth (apre il browser per autorizzare niccolonolli@gmail.com)
+python scripts/google_oauth_setup.py
+
+# Controllo singolo immediato
 python main.py --once
+
+# Servizio continuo (controllo subito + ogni 6 ore)
+python main.py
 ```
 
 Log su console e in `logs/monitor.log`; storico in `data/avvisi.sqlite3`;
@@ -122,7 +132,8 @@ file `.ics` in `data/ics/`.
 ```bash
 cd trenord-strike-monitor
 cp .env.example .env   # e compila i valori
-# metti le credenziali Google in secrets/
+# metti il token OAuth in secrets/oauth_token.json
+# (generato con: python scripts/google_oauth_setup.py)
 
 docker compose up -d --build
 docker compose logs -f
